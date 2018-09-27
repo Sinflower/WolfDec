@@ -1,6 +1,5 @@
 # WolfDec
 
-----------
 
 A Simple Wolf RPG File Decrypter capable of decrypting all current version of *.wolf* files, independent of the systems local setting, i.e., it works without the need to change the system location to Japanese.
 
