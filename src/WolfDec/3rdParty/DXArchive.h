@@ -165,7 +165,7 @@ public :
 		DATE_RESULT_DRAW,				// 日付は同じ
 	} ;
 
-	DXArchive(TCHAR *ArchivePath = NULL ) ;
+	explicit DXArchive(TCHAR *ArchivePath = NULL ) ;
 	~DXArchive() ;
 
 	static int			EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectoryPath, int FileNum, bool Press = false, const char *KeyString = NULL ) ;	// アーカイブファイルを作成する
@@ -291,6 +291,10 @@ public :
 	s64 Size( void ) ;											// ファイルのサイズを取得する
 
 	inline DARC_FILEHEAD *GetFileData( void ){ return FileData ; }
+
+	DXArchiveFile(DXArchiveFile&) = delete;
+	void operator=(DXArchiveFile const&t) = delete;
+	DXArchiveFile(DXArchiveFile&&) = delete;
 } ;
 
 #endif

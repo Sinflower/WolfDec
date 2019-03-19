@@ -76,7 +76,7 @@ static int __EnumObject(TCHAR *Path, TCHAR *CurrentPath, FILE_INFOLIST *FileList
 	int FileNum, IsDirectory ;
 	TCHAR RelDir[PATH_LENGTH] ;
 	TCHAR *AbsDir ;
-	int RelDirLen, AbsDirLen, StartNum ;
+	int RelDirLen, AbsDirLen, StartNum = 0 ;
 
 	// ディレクトリパスの作成
 	AbsDir = Path ;
@@ -486,7 +486,11 @@ extern int LoadFileMem( const TCHAR *Path, void **DataBuf, int *Size )
 	fclose( fp ) ;
 
 	// セット
-	if( DataBuf != NULL ) *DataBuf = buf ;
+	if(DataBuf != NULL)
+		*DataBuf = buf;
+	else
+		free(buf);
+
 	if( Size != NULL ) *Size = size ;
 
 	// 終了
@@ -1037,8 +1041,8 @@ extern int ConvertFullPath__( const TCHAR *Src, TCHAR *Dest, const TCHAR *Curren
 			{
 				*(( unsigned short * )&iden[k] ) = *(( unsigned short * )&Src[i] ) ;
 				iden[k+1] = '\0' ;
-				k += 1 ;
-				i += 1 ;
+				k ++ ;
+				i ++ ;
 			}
 			break ;
 		}

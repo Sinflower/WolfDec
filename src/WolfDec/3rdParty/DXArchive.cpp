@@ -229,7 +229,7 @@ int DXArchive::ConvSearchData( SEARCHDATA *SearchData, const TCHAR *Src, int *Le
 	SearchData->Parity = ParityData ;
 
 	// パックデータ数の保存
-	SearchData->PackNum = StringLength / 4 ;
+	SearchData->PackNum = (u16)(StringLength / 4) ;
 
 	// 正常終了
 	return 0 ;
@@ -258,7 +258,7 @@ int DXArchive::AddFileNameData( const TCHAR *FileName, u8 *FileNameTable )
 	PackNum = ( Length + 3 ) / 4 ;
 
 	// パック数を保存
-	*((u16 *)&FileNameTable[0]) = PackNum ;
+	*((u16 *)&FileNameTable[0]) = (u16)PackNum ;
 
 	// バッファの初期化
 	memset( &FileNameTable[4], 0, PackNum * 4 * 2 ) ;
@@ -454,7 +454,7 @@ void DXArchive::KeyCreate( const char *Source, unsigned char *Key )
 
 	if( Source == NULL )
 	{
-		memset( Key, 0xaaaaaaaa, DXA_KEYSTR_LENGTH ) ;
+		memset( Key, 0xaa, DXA_KEYSTR_LENGTH ) ;
 	}
 	else
 	{
@@ -913,7 +913,7 @@ int DXArchive::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD *Head,
 				{
 					HANDLE HFile ;
 					FILETIME CreateTime, LastAccessTime, LastWriteTime ;
-					TCHAR *pName = GetOriginalFileName(NameP + File->NameAddress);
+					pName = GetOriginalFileName(NameP + File->NameAddress);
 					HFile = CreateFile(pName,
 										GENERIC_WRITE, 0, NULL,
 										OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL ) ;
@@ -1011,7 +1011,7 @@ int DXArchive::Encode( void *Src, u32 SrcSize, void *Dest )
 {
 	s32 dstsize ;
 	s32    bonus,    conbo,    conbosize,    address,    addresssize ;
-	s32 maxbonus, maxconbo, maxconbosize, maxaddress, maxaddresssize ;
+	s32 maxbonus, maxconbo, maxconbosize = 0, maxaddress, maxaddresssize = 0 ;
 	u8 keycode, *srcp, *destp, *dp, *sp, *sp2, *sp1 ;
 	u32 srcaddress, nextprintaddress, code ;
 	s32 j ;
@@ -1355,7 +1355,7 @@ NOENCODE:
 // デコード( 戻り値:解凍後のサイズ  -1 はエラー  Dest に NULL を入れることも可能 )
 int DXArchive::Decode( void *Src, void *Dest )
 {
-	u32 srcsize, destsize, code, indexsize, keycode, conbo, index ;
+	u32 srcsize, destsize, code, indexsize, keycode, conbo, index = 0;
 	u8 *srcp, *destp, *dp, *sp ;
 
 	destp = (u8 *)Dest ;
@@ -1545,17 +1545,29 @@ int DXArchive::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectoryPath,
 	}
 	
 	// 各バッファを確保する
-	NameP = ( u8 * )malloc( DXA_BUFFERSIZE ) ;
-	if( NameP == NULL ) return -1 ;
-	memset( NameP, 0, DXA_BUFFERSIZE ) ;
+	NameP = ( u8 * )calloc(DXA_BUFFERSIZE, sizeof(u8)) ;
+	if(NameP == NULL)
+	{
+		free(TempBuffer);
+		return -1;
+	}
 
-	FileP = ( u8 * )malloc( DXA_BUFFERSIZE ) ;
-	if( FileP == NULL ) return -1 ;
-	memset( FileP, 0, DXA_BUFFERSIZE ) ;
+	FileP = (u8 *)calloc(DXA_BUFFERSIZE, sizeof(u8));
+	if(FileP == NULL)
+	{
+		free(TempBuffer);
+		free(NameP);
+		return -1;
+	}
 
-	DirP = ( u8 * )malloc( DXA_BUFFERSIZE ) ;
-	if( DirP == NULL ) return -1 ;
-	memset( DirP, 0, DXA_BUFFERSIZE ) ;
+	DirP = ( u8 * )calloc(DXA_BUFFERSIZE, sizeof(u8));
+	if(DirP == NULL)
+	{
+		free(TempBuffer);
+		free(NameP);
+		free(FileP);
+		return -1;
+	}
 
 	// サイズ保存構造体にデータをセット
 	SizeSave.DataSize		= 0 ;
@@ -2002,7 +2014,7 @@ ERR :
 // アーカイブファイルを開き最初にすべてメモリ上に読み込んでから処理する( 0:成功  -1:失敗 )
 int DXArchive::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *KeyString )
 {
-	FILE *fp ;
+	FILE *pFp ;
 	u8 *datp ;
 	void *ArchiveImage ;
 	s64 ArchiveSize ;
@@ -2015,19 +2027,19 @@ int DXArchive::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *KeyStri
 
 	// メモリに読み込む
 	{
-		fp = _tfopen( ArchivePath, TEXT("rb") ) ;
-		if( fp == NULL ) return -1 ;
-		_fseeki64( fp, 0L, SEEK_END ) ;
-		ArchiveSize = _ftelli64( fp ) ;
-		_fseeki64( fp, 0L, SEEK_SET ) ;
+		pFp = _tfopen( ArchivePath, TEXT("rb") ) ;
+		if(pFp == NULL ) return -1 ;
+		_fseeki64(pFp, 0L, SEEK_END ) ;
+		ArchiveSize = _ftelli64(pFp) ;
+		_fseeki64(pFp, 0L, SEEK_SET ) ;
 		ArchiveImage = malloc( ( size_t )ArchiveSize ) ;
 		if( ArchiveImage == NULL )
 		{
-			fclose( fp ) ;
+			fclose(pFp) ;
 			return -1 ;
 		}
-		fread64( ArchiveImage, ArchiveSize, fp ) ;
-		fclose( fp ) ;
+		fread64( ArchiveImage, ArchiveSize, pFp) ;
+		fclose(pFp) ;
 	}
 
 	// 最初にヘッダの部分を反転する
