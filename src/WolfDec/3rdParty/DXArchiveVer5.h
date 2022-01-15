@@ -190,7 +190,7 @@ public :
 		DATE_RESULT_DRAW,				// 日付は同じ
 	} ;
 
-	explicit DXArchive_VER5(TCHAR *ArchivePath = NULL ) ;
+	DXArchive_VER5(TCHAR *ArchivePath = NULL ) ;
 	~DXArchive_VER5() ;
 
 	static int			EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectoryPath, int FileNum, bool Press = false, const char *KeyString = NULL ) ;	// アーカイブファイルを作成する
@@ -313,10 +313,6 @@ public :
 	int Size( void ) ;											// ファイルのサイズを取得する
 
 	inline DARC_FILEHEAD_VER5 *GetFileData( void ){ return FileData ; }
-
-	DXArchiveFile_VER5(DXArchiveFile_VER5&) = delete;
-	void operator=(DXArchiveFile_VER5 const&t) = delete;
-	DXArchiveFile_VER5(DXArchiveFile_VER5&&) = delete;
 } ;
 
 #endif

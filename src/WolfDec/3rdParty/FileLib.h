@@ -7,8 +7,8 @@
 //
 // ============================================================================
 
-#ifndef __FILELIB
-#define __FILELIB
+#ifndef FILELIB_H
+#define FILELIB_H
 
 // include --------------------------------------
 #include <stdio.h>
@@ -31,9 +31,10 @@ typedef struct tagFILE_DATE
 typedef struct tagFILE_INFO
 {
 	TCHAR *FileName ;			// ファイル名
+	u32 FileNameHash;			// ファイル名の CRC32 のハッシュ値
 	TCHAR *RelDirectoryPath ;	// 列挙処理時のカレントディレクトリからの相対ディレクトリパス( 語尾に '\' が着いている )
 	TCHAR *AbsDirectoryPath ;	// 絶対ディレクトリパス( 語尾に '\' が着いている )
-	u32 Size ;					// ファイルのサイズ(ディレクトリの場合は何も入っていない)
+	u64 Size ;					// ファイルのサイズ(ディレクトリの場合は何も入っていない)
 	u32 IsDirectory ;			// ディレクトリか否か
 	FILE_DATE Date ;			// 日付データ
 	u32 Attributes ;			// ファイル属性
@@ -57,9 +58,12 @@ extern void EasyEncodeFileRead( void *Data, int Size, FILE *fp ) ;			// デー�
 extern unsigned int BinToChar128( void *Src, unsigned int SrcSize, void *Dest ) ;	// バイナリデータを半角文字列に変換する( 戻り値:変換後のデータサイズ )
 extern unsigned int Char128ToBin( void *Src, void *Dest ) ;							// 半角文字列をバイナリデータに変換する( 戻り値:変換後のデータサイズ )
 
-extern int LoadFileMem( const TCHAR *Path, void **DataBuf, int *Size ) ;		// ファイルの内容をメモリに読み込む( 0:成功  -1:失敗 )
-extern int LoadFileMem( const TCHAR *Path, void *DataBuf, int *Size ) ;		// ファイルの内容をメモリに読み込む( 0:成功  -1:失敗 )
-extern int SaveFileMem( const TCHAR *Path, void *Data,   int Size ) ;		// メモリの内容をファイルに書き出す 
+extern unsigned int BinToBase64( void *Src, unsigned int SrcSize, void *Dest ) ;	// バイナリデータをBase64文字列に変換する( 戻り値:変換後のデータサイズ )
+extern unsigned int Base64ToBin( void *Src, void *Dest ) ;							// Base64文字列をバイナリデータに変換する( 戻り値:変換後のデータサイズ )
+
+extern int LoadFileMem( const TCHAR *Path, void **DataBuf, size_t *Size ) ;		// ファイルの内容をメモリに読み込む( 0:成功  -1:失敗 )
+extern int LoadFileMem( const TCHAR *Path, void *DataBuf,  size_t *Size ) ;		// ファイルの内容をメモリに読み込む( 0:成功  -1:失敗 )
+extern int SaveFileMem( const TCHAR *Path, void *Data,     size_t  Size ) ;		// メモリの内容をファイルに書き出す 
 
 // 指定のディレクトリを作成する、中間のディレクトリも存在しない場合は作成する
 // 最後尾に '\' があっても無視する
@@ -86,10 +90,11 @@ extern int CmpFileTimeStamp( FILE_INFO *FileInfo1, FILE_INFO *FileInfo2, bool Cr
 // OmitName に除外したいファイル名を渡すとその文字列を除外してくれる( ';'で複数の文字列を連結可能 )
 // OmitExName に除外したい拡張子を渡すとその拡張子を持つファイルを除外してくれる( ';'で複数の文字列を連結可能 )
 // ValidExName に有効にしたい拡張子を渡すとその拡張子を持つファイルのみ列挙してくれる( Omit系よりも優先度が高い, ';'で複数の文字列を連結可能 )
+// EnumFileCallback は 1ファイルごとに呼ばれるコールバック関数、Phase は 0=ファイル数列挙中 1=ファイル情報取得中
 extern int CreateFileList( const TCHAR *DirectoryPath, FILE_INFOLIST *FileListInfo = 0,
 							int OmitDirectory = 0, int SubDirectory = 0,
 							const TCHAR *OmitName = 0, const TCHAR *OmitExName = 0,
-							const TCHAR *ValidExName = 0 ) ;
+							const TCHAR *ValidExName = 0, void ( *EnumFileCallback )( int Phase, int NowFileNum, int TotalFileNum, const TCHAR *FileName, const TCHAR *RelDirPath, const TCHAR *AbsDirPath ) = 0 ) ;
 extern int ReleaseFileList( FILE_INFOLIST *DirectoryInfo ) ;
 
 // 特定のパス文字列から色々な情報を取得する
@@ -116,16 +121,18 @@ extern int AnalysisFileNameAndExeName( const TCHAR *Src, TCHAR *Name = 0, TCHAR 
 extern int GetChangeExeNamePath( const TCHAR *Src, TCHAR *Dest, const TCHAR *ExeName ) ;
 
 extern void SetEnMark( TCHAR *PathBuf ) ;			// 語尾に『\』がついていない場合は付ける
-extern void SetChr( TCHAR *PathBuf, char chr ) ;		// 語尾に指定の文字がない場合はつける
-extern void DelChr( TCHAR *PathBuf, char chr ) ;		// 語尾に指定の文字がある場合は削除する
+extern void SetChr( TCHAR *PathBuf, TCHAR chr ) ;		// 語尾に指定の文字がない場合はつける
+extern void DelChr( TCHAR *PathBuf, TCHAR chr ) ;		// 語尾に指定の文字がある場合は削除する
 
-extern int GetExName( const TCHAR *Path, TCHAR *ExNameBuf ) ;				// 拡張子を得る
-extern int SetExName( const TCHAR *Path, TCHAR *ExName, TCHAR *DestBuf ) ;	// 拡張子を変更する
+extern int GetExName( const TCHAR *Path, TCHAR *ExNameBuf ) ;						// 拡張子を得る
+extern int SetExName( const TCHAR *Path, const TCHAR *ExName, TCHAR *DestBuf ) ;	// 拡張子を変更する
 
-extern int CheckTextData( void *buffer, int size ) ;		// テキストデータかどうかを判定する( 1:テキストデータ  0:バイナリデータ )
-extern int CheckTextFile( const TCHAR *Path ) ;				// テキストファイルかどうかを判定する( 1:テキストデータ  0:バイナリデータ )
+extern int CheckTextData( void *buffer, int size ) ;		// テキストデータかどうかを判定する( シフトJISファイルタイプのみ対応 )( 1:テキストデータ  0:バイナリデータ )
+extern int CheckTextFile( const TCHAR *Path ) ;				// テキストファイルかどうかを判定する( シフトJISファイルタイプのみ対応 )( 1:テキストデータ  0:バイナリデータ )
 
 // ２バイト文字か調べる( TRUE:２バイト文字 FALSE:１バイト文字 ) 
-extern int CheckMultiByteChar(TCHAR *Buf ) ;
+extern int CheckMultiByteChar( char *Buf ) ;
+
+extern u32 FileLib_HashCRC32( const void *SrcData, size_t SrcDataSize ) ;		// CRC32 のハッシュ値を取得する
 
 #endif

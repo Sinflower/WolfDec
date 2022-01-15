@@ -1,6 +1,6 @@
 // -------------------------------------------------------------------------------
 // 
-// 		ＤＸライブラリアーカイバ Ver5
+// 		ＤＸライブラリアーカイバ
 // 
 //	Creator			: 山田 巧
 //	Creation Date	: 2003/09/11
@@ -8,39 +8,39 @@
 // 
 // -------------------------------------------------------------------------------
 
-//#define INLINE_ASM
+#define INLINE_ASM
 
 // include ----------------------------
-#include "DXArchiveVer5.h"
+#include "DXArchiveVer6.h"
 #include <stdio.h>
 #include <windows.h>
 #include <string.h>
 
 // define -----------------------------
 
-#define MIN_COMPRESS_VER5		(4)						// 最低圧縮バイト数
-#define MAX_SEARCHLISTNUM_VER5	(64)					// 最大一致長を探す為のリストを辿る最大数
-#define MAX_SUBLISTNUM_VER5		(65536)					// 圧縮時間短縮のためのサブリストの最大数
-#define MAX_COPYSIZE_VER5 		(0x1fff + MIN_COMPRESS_VER5)	// 参照アドレスからコピー出切る最大サイズ( 圧縮コードが表現できるコピーサイズの最大値 + 最低圧縮バイト数 )
-#define MAX_ADDRESSLISTNUM_VER5	(1024 * 1024 * 1)		// スライド辞書の最大サイズ
-#define MAX_POSITION_VER5		(1 << 24)				// 参照可能な最大相対アドレス( 16MB )
+#define MIN_COMPRESS		(4)						// 最低圧縮バイト数
+#define MAX_SEARCHLISTNUM	(64)					// 最大一致長を探す為のリストを辿る最大数
+#define MAX_SUBLISTNUM		(65536)					// 圧縮時間短縮のためのサブリストの最大数
+#define MAX_COPYSIZE 		(0x1fff + MIN_COMPRESS)	// 参照アドレスからコピー出切る最大サイズ( 圧縮コードが表現できるコピーサイズの最大値 + 最低圧縮バイト数 )
+#define MAX_ADDRESSLISTNUM	(1024 * 1024 * 1)		// スライド辞書の最大サイズ
+#define MAX_POSITION		(1 << 24)				// 参照可能な最大相対アドレス( 16MB )
 
-WCHAR sjis2utf8_(const char* sjis);
+WCHAR sjis2utf8_VER6(const char* sjis);
 
 // struct -----------------------------
 
 // 圧縮時間短縮用リスト
-typedef struct LZ_LIST_VER5
+typedef struct LZ_LIST
 {
-	LZ_LIST_VER5 *next, *prev ;
+	LZ_LIST *next, *prev ;
 	u32 address ;
-} LZ_LIST_VER5 ;
+} LZ_LIST ;
 
 // class code -------------------------
 
 // ファイル名も一緒になっていると分かっているパス中からファイルパスとディレクトリパスを分割する
 // フルパスである必要は無い
-int DXArchive_VER5::GetFilePathAndDirPath(TCHAR *Src, TCHAR *FilePath, TCHAR *DirPath )
+int DXArchive_VER6::GetFilePathAndDirPath(TCHAR *Src, TCHAR *FilePath, TCHAR *DirPath )
 {
 	int i, Last ;
 	
@@ -84,11 +84,11 @@ int DXArchive_VER5::GetFilePathAndDirPath(TCHAR *Src, TCHAR *FilePath, TCHAR *Di
 }
 
 // ファイルの情報を得る
-DARC_FILEHEAD_VER5 *DXArchive_VER5::GetFileInfo( const TCHAR *FilePath )
+DARC_FILEHEAD_VER6 *DXArchive_VER6::GetFileInfo( const TCHAR *FilePath )
 {
-	DARC_DIRECTORY_VER5 *OldDir ;
-	DARC_FILEHEAD_VER5 *FileH ;
-	TCHAR *NameData ;
+	DARC_DIRECTORY_VER6 *OldDir ;
+	DARC_FILEHEAD_VER6 *FileH ;
+	u8 *NameData ;
 	int i, j, k, Num, FileHeadSize ;
 	SEARCHDATA SearchData ;
 
@@ -112,10 +112,10 @@ DARC_FILEHEAD_VER5 *DXArchive_VER5::GetFileInfo( const TCHAR *FilePath )
 	}
 
 	// 同名のファイルを探す
-	FileHeadSize = this->Head.Version >= 0x0002 ? sizeof( DARC_FILEHEAD_VER5 ) : sizeof( DARC_FILEHEAD_VER1 ) ;
-	FileH = ( DARC_FILEHEAD_VER5 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
-	Num = (s32)this->CurrentDirectory->FileHeadNum ;
-	for( i = 0 ; i < Num ; i ++, FileH = (DARC_FILEHEAD_VER5 *)( (u8 *)FileH + FileHeadSize ) )
+	FileHeadSize = sizeof( DARC_FILEHEAD_VER6 ) ;
+	FileH = ( DARC_FILEHEAD_VER6 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
+	Num = ( int )this->CurrentDirectory->FileHeadNum ;
+	for( i = 0 ; i < Num ; i ++, FileH = (DARC_FILEHEAD_VER6 *)( (u8 *)FileH + FileHeadSize ) )
 	{
 		// ディレクトリチェック
 		if( ( FileH->Attributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) continue ;
@@ -148,56 +148,16 @@ ERR :
 	
 	// エラー終了
 	return NULL ;
-
-/*
-	DARC_DIRECTORY_VER5 *OldCurrent ;
-	DARC_FILEHEAD_VER5 *File ;
-	char TPath[MAX_PATH], FPath[MAX_PATH], DPath[MAX_PATH] ;
-	int i, len ;
-		
-	// 一文字もない場合は例外処理
-	if( FilePath[0] == '\0' ) return ( DARC_FILEHEAD_VER5 * )FileP ;
-
-	// 元のカレントディレクトリを保存しておく
-	OldCurrent = CurrentDirectory ;
-	
-	// ファイルパスとディレクトリパスを分解する
-	strcpy( TPath, FilePath ) ;
-	if( TPath[(len = strlen( TPath ))-1] == '\\' ) TPath[len-1] = '\0' ;
-	GetFilePathAndDirPath( TPath, FPath, DPath ) ;
-	
-	// カレントディレクトリの変更
-	if( ChangeCurrentDirectory( DPath ) == -1 ) goto ERR ;
-	
-	// ファイルパスの変更
-	File = ( DARC_FILEHEAD_VER5 * )( FileP + CurrentDirectory->FileHeadAddress ) ;
-	for( 	i = 0 ;
-			i < (int)CurrentDirectory->FileHeadNum && _tcscmp( ( const char * )( NameP + File->NameAddress ), FPath ) != 0 ;
-			i ++, File ++ ){}
-	if( i == (int)CurrentDirectory->FileHeadNum ) goto ERR ;
-
-	// カレントディレクトリを元に戻す
-	CurrentDirectory = OldCurrent ;
-
-	// 見つけたファイルの情報を返す
-	return File ;	
-
-ERR :
-	// カレントディレクトリを元に戻す
-	CurrentDirectory = OldCurrent ;
-	
-	return NULL ;
-*/
 }
 
 // アーカイブ内のカレントディレクトリの情報を取得する
-DARC_DIRECTORY_VER5 *DXArchive_VER5::GetCurrentDirectoryInfo( void )
+DARC_DIRECTORY_VER6 *DXArchive_VER6::GetCurrentDirectoryInfo( void )
 {
 	return CurrentDirectory ;
 }
 
 // どちらが新しいかを比較する
-DXArchive_VER5::DATE_RESULT DXArchive_VER5::DateCmp( DARC_FILETIME_VER5 *date1, DARC_FILETIME_VER5 *date2 )
+DXArchive_VER6::DATE_RESULT DXArchive_VER6::DateCmp( DARC_FILETIME_VER6 *date1, DARC_FILETIME_VER6 *date2 )
 {
 	if( date1->LastWrite == date2->LastWrite ) return DATE_RESULT_DRAW ;
 	else if( date1->LastWrite > date2->LastWrite ) return DATE_RESULT_LEFTNEW ;
@@ -205,7 +165,7 @@ DXArchive_VER5::DATE_RESULT DXArchive_VER5::DateCmp( DARC_FILETIME_VER5 *date1, 
 }
 
 // 比較対照の文字列中の大文字を小文字として扱い比較する( 0:等しい  1:違う )
-int DXArchive_VER5::StrICmp( const TCHAR *Str1, const TCHAR *Str2 )
+int DXArchive_VER6::StrICmp( const TCHAR *Str1, const TCHAR *Str2 )
 {
 	int c1, c2 ;
 	
@@ -233,7 +193,7 @@ int DXArchive_VER5::StrICmp( const TCHAR *Str1, const TCHAR *Str2 )
 }
 
 // 文字列中の英字の小文字を大文字に変換
-int DXArchive_VER5::ConvSearchData( SEARCHDATA *SearchData, const TCHAR *Src, int *Length )
+int DXArchive_VER6::ConvSearchData( SEARCHDATA *SearchData, const TCHAR *Src, int *Length )
 {
 	int i, StringLength ;
 	u16 ParityData ;
@@ -252,7 +212,7 @@ int DXArchive_VER5::ConvSearchData( SEARCHDATA *SearchData, const TCHAR *Src, in
 		{
 			// 小文字の場合は大文字に変換
 			if( Src[i] >= 'a' && Src[i] <= 'z' )	SearchData->FileName[i] = (u8)Src[i] - 'a' + 'A' ;
-			else									SearchData->FileName[i] = Src[i] ;
+			else									SearchData->FileName[i] = (u8)Src[i] ;
 			ParityData += (u8)SearchData->FileName[i] ;
 			i ++ ;
 		}
@@ -276,14 +236,13 @@ int DXArchive_VER5::ConvSearchData( SEARCHDATA *SearchData, const TCHAR *Src, in
 }
 
 // ファイル名データを追加する( 戻り値は使用したデータバイト数 )
-int DXArchive_VER5::AddFileNameData( const TCHAR *FileName, u8 *FileNameTable )
+int DXArchive_VER6::AddFileNameData( const TCHAR *FileName, u8 *FileNameTable )
 {
-	int PackNum, i ;
-	size_t Length;
+	int PackNum, Length, i ;
 	u32 Parity ;
 
 	// サイズをセット
-	Length = _tcslen( FileName ) ;
+	Length = ( int )_tcslen( FileName ) ;
 
 	// 一文字も無かった場合の処理
 	if( Length == 0 )
@@ -296,10 +255,10 @@ int DXArchive_VER5::AddFileNameData( const TCHAR *FileName, u8 *FileNameTable )
 	}
 	Length ++ ;
 
-	PackNum = (int)(( Length + 3 ) / 4) ;
+	PackNum = ( Length + 3 ) / 4 ;
 
 	// パック数を保存
-	*((u16 *)&FileNameTable[0]) = (u16)PackNum ;
+	*((u16 *)&FileNameTable[0]) = PackNum ;
 
 	// バッファの初期化
 	memset( &FileNameTable[4], 0, PackNum * 4 * 2 ) ;
@@ -345,13 +304,13 @@ int DXArchive_VER5::AddFileNameData( const TCHAR *FileName, u8 *FileNameTable )
 }
 
 // ファイル名データから元のファイル名の文字列を取得する
-TCHAR *DXArchive_VER5::GetOriginalFileName( u8 *FileNameTable )
+TCHAR *DXArchive_VER6::GetOriginalFileName( u8 *FileNameTable )
 {
 	const char *pName = ((char *)FileNameTable + *((u16 *)&FileNameTable[0]) * 4 + 4);
 
 	bool isMultiByte = false;
 	size_t nameLen = strlen(pName);
-	TCHAR *pFileStr = new TCHAR[nameLen + 1]();
+	TCHAR *pFileStr = new TCHAR[nameLen+1]();
 
 	for(size_t si = 0, sf = 0; si < nameLen; si++, sf++)
 	{
@@ -363,7 +322,7 @@ TCHAR *DXArchive_VER5::GetOriginalFileName( u8 *FileNameTable )
 			ss[0] = pName[si];
 			ss[1] = pName[si + 1];
 			ss[2] = 0;
-			pFileStr[sf] = sjis2utf8_(ss);
+			pFileStr[sf] = sjis2utf8_VER6(ss);
 			si++;
 		}
 		else
@@ -374,117 +333,145 @@ TCHAR *DXArchive_VER5::GetOriginalFileName( u8 *FileNameTable )
 	return pFileStr;
 }
 
-// データを反転させる関数
-void DXArchive_VER5::NotConv( void *Data , int Size )
+// 標準ストリームにデータを書き込む( 64bit版 )
+void DXArchive_VER6::fwrite64( void *Data, s64 Size, FILE *fp )
 {
-	int DwordNum ;
-	int ByteNum ;
+	int WriteSize ;
+	s64 TotalWriteSize ;
 
-	DwordNum = Size / 4 ;
-	ByteNum = Size - DwordNum * 4 ;
-#ifndef INLINE_ASM
+	TotalWriteSize = 0 ;
+	while( TotalWriteSize < Size )
 	{
-//		int i ;
-		DWORD *dd ;
-//		for( int i = 0 ; i < Size ; i ++ ) ( ( BYTE * )Data )[i] = ~( ( BYTE * )Data )[i] ;
-
-		dd = ( DWORD * )Data ;
-		if( DwordNum != 0 )
+		if( Size > 0x7fffffff )
 		{
+			WriteSize = 0x7fffffff ;
+		}
+		else
+		{
+			WriteSize = ( int )Size ;
+		}
+
+		fwrite( ( u8 * )Data + TotalWriteSize, 1, WriteSize, fp ) ;
+
+		TotalWriteSize += WriteSize ;
+	}
+}
+
+// 標準ストリームからデータを読み込む( 64bit版 )
+void DXArchive_VER6::fread64( void *Buffer, s64 Size, FILE *fp )
+{
+	int ReadSize ;
+	s64 TotalReadSize ;
+
+	TotalReadSize = 0 ;
+	while( TotalReadSize < Size )
+	{
+		if( Size > 0x7fffffff )
+		{
+			ReadSize = 0x7fffffff ;
+		}
+		else
+		{
+			ReadSize = ( int )Size ;
+		}
+
+		fread( ( u8 * )Buffer + TotalReadSize, 1, ReadSize, fp ) ;
+
+		TotalReadSize += ReadSize ;
+	}
+}
+
+// データを反転させる関数
+void DXArchive_VER6::NotConv( void *Data , s64 Size )
+{
+	s64 DwordNumQ ;
+	s64 ByteNum ;
+	u32 *dd ;
+
+	dd = ( u32 * )Data ;
+
+	DwordNumQ = Size / 4 ;
+	ByteNum = Size - DwordNumQ * 4 ;
+
+	if( DwordNumQ != 0 )
+	{
+		if( DwordNumQ < 0x100000000 )
+		{
+			u32 DwordNum ;
+
+			DwordNum = ( u32 )DwordNumQ ;
 			do
 			{
 				*dd++ = ~*dd ;
 			}while( --DwordNum ) ;
 		}
-		if( ByteNum != 0 )
+		else
 		{
 			do
 			{
-				*((BYTE *)dd) = ~*((BYTE *)dd) ;
-				dd = (DWORD *)(((BYTE *)dd) + 1) ;
-			}while( --ByteNum ) ;
+				*dd++ = ~*dd ;
+			}while( --DwordNumQ ) ;
 		}
 	}
-#else
-	__asm
+	if( ByteNum != 0 )
 	{
-		MOV ESI, Data
-		MOV ECX, DwordNum
-		CMP ECX, 0
-		JE LABEL1
-LOOP1:
-		MOV EAX, [ESI]
-		NOT EAX
-		MOV [ESI], EAX
-		ADD ESI, 4
-		DEC ECX
-		JNZ LOOP1
-
-LABEL1:
-		MOV ECX, ByteNum
-		CMP ECX, 0
-		JE END
-LOOP2:
-		MOV AL, [ESI]
-		NOT AL
-		MOV [ESI], AL
-		INC ESI
-		DEC ECX
-		JNZ LOOP2
-END:
-	} ;
-#endif
+		do
+		{
+			*((BYTE *)dd) = ~*((u8 *)dd) ;
+			dd = (u32 *)(((u8 *)dd) + 1) ;
+		}while( --ByteNum ) ;
+	}
 }
 
 
 // データを反転させてファイルに書き出す関数
-void DXArchive_VER5::NotConvFileWrite( void *Data, int Size, FILE *fp )
+void DXArchive_VER6::NotConvFileWrite( void *Data, s64 Size, FILE *fp )
 {
 	// データを反転する
 	NotConv( Data, Size ) ;
 
 	// 書き出す
-	fwrite( Data, Size, 1, fp ) ;
+	fwrite64( Data, Size, fp ) ;
 
 	// 再び反転
 	NotConv( Data, Size ) ;
 }
 
 // データを反転させてファイルから読み込む関数
-void DXArchive_VER5::NotConvFileRead( void *Data, int Size, FILE *fp )
+void DXArchive_VER6::NotConvFileRead( void *Data, s64 Size, FILE *fp )
 {
 	// 読み込む
-	fread( Data, 1, Size, fp ) ;
+	fread64( Data, Size, fp ) ;
 
 	// データを反転
 	NotConv( Data, Size ) ;
 }
 
 // 鍵文字列を作成
-void DXArchive_VER5::KeyCreate( const char *Source, unsigned char *Key )
+void DXArchive_VER6::KeyCreate( const char *Source, unsigned char *Key )
 {
-	size_t Len ;
+	int Len ;
 
 	if( Source == NULL )
 	{
-		memset( Key, 0xaaaaaaaa, DXA_KEYSTR_LENGTH_VER5 ) ;
+		memset( Key, 0xaaaaaaaa, DXA_KEYSTR_LENGTH_VER6 ) ;
 	}
 	else
 	{
-		Len = strlen( Source ) ;
-		if( Len > DXA_KEYSTR_LENGTH_VER5 )
+		Len = ( int )strlen( Source ) ;
+		if( Len > DXA_KEYSTR_LENGTH_VER6 )
 		{
-			memcpy( Key, Source, DXA_KEYSTR_LENGTH_VER5 ) ;
+			memcpy( Key, Source, DXA_KEYSTR_LENGTH_VER6 ) ;
 		}
 		else
 		{
-			// 鍵文字列が DXA_KEYSTR_LENGTH_VER5 より短かったらループする
-			size_t i ;
+			// 鍵文字列が DXA_KEYSTR_LENGTH_VER6 より短かったらループする
+			int i ;
 
-			for( i = 0 ; i + Len <= DXA_KEYSTR_LENGTH_VER5 ; i += Len )
+			for( i = 0 ; i + Len <= DXA_KEYSTR_LENGTH_VER6 ; i += Len )
 				memcpy( Key + i, Source, Len ) ;
-			if( i < DXA_KEYSTR_LENGTH_VER5 )
-				memcpy( Key + i, Source, DXA_KEYSTR_LENGTH_VER5 - i ) ;
+			if( i < DXA_KEYSTR_LENGTH_VER6 )
+				memcpy( Key + i, Source, DXA_KEYSTR_LENGTH_VER6 - i ) ;
 		}
 	}
 
@@ -502,132 +489,69 @@ void DXArchive_VER5::KeyCreate( const char *Source, unsigned char *Key )
 	Key[11] = Key[11] ^ 0xcc ;
 }
 
-// 鍵文字列を使用して Xor 演算( Key は必ず DXA_KEYSTR_LENGTH_VER5 の長さがなければならない )
-void DXArchive_VER5::KeyConv( void *Data, int Size, int Position, unsigned char *Key )
+// 鍵文字列を使用して Xor 演算( Key は必ず DXA_KEYSTR_LENGTH_VER6 の長さがなければならない )
+void DXArchive_VER6::KeyConv( void *Data, s64 Size, s64 Position, unsigned char *Key )
 {
-	Position %= DXA_KEYSTR_LENGTH_VER5 ;
+	Position %= DXA_KEYSTR_LENGTH_VER6 ;
 
-#ifndef INLINE_ASM
-	int i, j ;
-
-	j = Position ;
-	for( i = 0 ; i < Size ; i ++ )
+	if( Size < 0x100000000 )
 	{
-		((u8 *)Data)[i] ^= Key[j] ;
+		u32 i, j ;
 
-		j ++ ;
-		if( j == DXA_KEYSTR_LENGTH_VER5 ) j = 0 ;
+		j = ( u32 )Position ;
+		for( i = 0 ; i < Size ; i ++ )
+		{
+			((u8 *)Data)[i] ^= Key[j] ;
+
+			j ++ ;
+			if( j == DXA_KEYSTR_LENGTH_VER6 ) j = 0 ;
+		}
 	}
-#else
-	u32 DataT, SizeT ;
-	SizeT = (u32)Size ;
-	DataT = (u32)Data ;
-	Position %= DXA_KEYSTR_LENGTH_VER5 ;
-	__asm
+	else
 	{
-		MOV EDI, DataT
-		MOV ESI, Key
+		s64 i, j ;
 
-		MOV EAX, SizeT
-		CMP EAX, DXA_KEYSTR_LENGTH_VER5
-		JB LABEL2
+		j = Position ;
+		for( i = 0 ; i < Size ; i ++ )
+		{
+			((u8 *)Data)[i] ^= Key[j] ;
 
-
-		MOV EAX, Position
-		CMP EAX, 0
-		JE LABEL1
-
-
-		MOV EDX, SizeT
-LOOP1:
-		MOV BL, [ESI+EAX]
-		XOR [EDI], BL
-		INC EAX
-		INC EDI
-		DEC EDX
-		CMP EAX, DXA_KEYSTR_LENGTH_VER5
-		JB LOOP1
-		XOR ECX, ECX
-		MOV Position, ECX
-
-		MOV SizeT, EDX
-		CMP EDX, DXA_KEYSTR_LENGTH_VER5
-		JB LABEL2
-
-
-LABEL1:
-		MOV EAX, SizeT
-		XOR EDX, EDX
-		MOV ECX, DXA_KEYSTR_LENGTH_VER5
-		DIV ECX
-		MOV SizeT, EDX
-		MOV ECX, EAX
-
-		MOV EAX, [ESI]
-		MOV EBX, [ESI+4]
-		MOV EDX, [ESI+8]
-LOOP2:
-		XOR [EDI],    EAX
-		XOR [EDI+4],  EBX
-		XOR [EDI+8],  EDX
-		ADD EDI, DXA_KEYSTR_LENGTH_VER5
-		DEC ECX
-		JNZ LOOP2
-
-
-LABEL2:
-		MOV EDX, SizeT
-		CMP EDX, 0
-		JE LABEL3
-
-
-		MOV EAX, Position
-LOOP3:
-		MOV BL, [ESI+EAX]
-		XOR [EDI], BL
-		INC EAX
-		CMP EAX, DXA_KEYSTR_LENGTH_VER5
-		JNE LABEL4
-		XOR EAX, EAX
-LABEL4:
-		INC EDI
-		DEC EDX
-		JNZ LOOP3
-LABEL3:
-	} ;
-#endif
+			j ++ ;
+			if( j == DXA_KEYSTR_LENGTH_VER6 ) j = 0 ;
+		}
+	}
 }
 
-// データを鍵文字列を使用して Xor 演算した後ファイルに書き出す関数( Key は必ず DXA_KEYSTR_LENGTH_VER5 の長さがなければならない )
-void DXArchive_VER5::KeyConvFileWrite( void *Data, int Size, FILE *fp, unsigned char *Key, int Position )
+// データを鍵文字列を使用して Xor 演算した後ファイルに書き出す関数( Key は必ず DXA_KEYSTR_LENGTH_VER6 の長さがなければならない )
+void DXArchive_VER6::KeyConvFileWrite( void *Data, s64 Size, FILE *fp, unsigned char *Key, s64 Position )
 {
-	int pos ;
+	s64 pos ;
 
 	// ファイルの位置を取得しておく
-	if( Position == -1 ) pos = ftell( fp ) ;
+	if( Position == -1 ) pos = _ftelli64( fp ) ;
 	else                 pos = Position ;
 
 	// データを鍵文字列を使って Xor 演算する
 	KeyConv( Data, Size, pos, Key ) ;
 
 	// 書き出す
-	fwrite( Data, Size, 1, fp ) ;
+	fwrite64( Data, Size, fp ) ;
 
 	// 再び Xor 演算
 	KeyConv( Data, Size, pos, Key ) ;
 }
 
-// ファイルから読み込んだデータを鍵文字列を使用して Xor 演算する関数( Key は必ず DXA_KEYSTR_LENGTH_VER5 の長さがなければならない )
-void DXArchive_VER5::KeyConvFileRead( void *Data, int Size, FILE *fp, unsigned char *Key, int Position )
+// ファイルから読み込んだデータを鍵文字列を使用して Xor 演算する関数( Key は必ず DXA_KEYSTR_LENGTH_VER6 の長さがなければならない )
+void DXArchive_VER6::KeyConvFileRead( void *Data, s64 Size, FILE *fp, unsigned char *Key, s64 Position )
 {
-	int pos ;
+	s64 pos ;
 
 	// ファイルの位置を取得しておく
-	if( Position == -1 ) pos = ftell( fp ) ;
+	if( Position == -1 ) pos = _ftelli64( fp ) ;
 	else                 pos = Position ;
 
 	// 読み込む
-	fread( Data, 1, Size, fp ) ;
+	fread64( Data, Size, fp ) ;
 
 	// データを鍵文字列を使って Xor 演算
 	KeyConv( Data, Size, pos, Key ) ;
@@ -635,20 +559,20 @@ void DXArchive_VER5::KeyConvFileRead( void *Data, int Size, FILE *fp, unsigned c
 
 /*
 // ２バイト文字か調べる( TRUE:２バイト文字 FALSE:１バイト文字 )
-int DXArchive_VER5::CheckMultiByteChar( const char *Buf )
+int DXArchive_VER6::CheckMultiByteChar( const char *Buf )
 {
 	return  ( (unsigned char)*Buf >= 0x81 && (unsigned char)*Buf <= 0x9F ) || ( (unsigned char)*Buf >= 0xE0 && (unsigned char)*Buf <= 0xFC ) ;
 }
 */
 
 // 指定のディレクトリにあるファイルをアーカイブデータに吐き出す
-int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, u8 *FileP, DARC_DIRECTORY_VER5 *ParentDir, SIZESAVE *Size, int DataNumber, FILE *DestP, void *TempBuffer, bool Press, unsigned char *Key )
+int DXArchive_VER6::DirectoryEncode(TCHAR *DirectoryName, u8 *NameP, u8 *DirP, u8 *FileP, DARC_DIRECTORY_VER6 *ParentDir, SIZESAVE *Size, int DataNumber, FILE *DestP, void *TempBuffer, bool Press, unsigned char *Key )
 {
 	TCHAR DirPath[MAX_PATH] ;
 	WIN32_FIND_DATA FindData ;
 	HANDLE FindHandle ;
-	DARC_DIRECTORY_VER5 Dir ;
-	DARC_FILEHEAD_VER5 File ;
+	DARC_DIRECTORY_VER6 Dir ;
+	DARC_FILEHEAD_VER6 File ;
 
 	// ディレクトリの情報を得る
 	FindHandle = FindFirstFile( DirectoryName, &FindData ) ;
@@ -663,15 +587,15 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 		File.Attributes      = FindData.dwFileAttributes ;
 		File.DataAddress     = Size->DirectorySize ;
 		File.DataSize        = 0 ;
-		File.PressDataSize	 = 0xffffffff ;
+		File.PressDataSize	 = 0xffffffffffffffff ;
 	}
 
 	// ディレクトリ名を書き出す
 	Size->NameSize += AddFileNameData( FindData.cFileName, NameP + Size->NameSize ) ;
 
 	// ディレクトリ情報が入ったファイルヘッダを書き出す
-	memcpy( FileP + ParentDir->FileHeadAddress + DataNumber * sizeof( DARC_FILEHEAD_VER5 ),
-			&File, sizeof( DARC_FILEHEAD_VER5 ) ) ;
+	memcpy( FileP + ParentDir->FileHeadAddress + DataNumber * sizeof( DARC_FILEHEAD_VER6 ),
+			&File, sizeof( DARC_FILEHEAD_VER6 ) ) ;
 
 	// Find ハンドルを閉じる
 	FindClose( FindHandle ) ;
@@ -682,13 +606,13 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 
 	// ディレクトリ情報のセット
 	{
-		Dir.DirectoryAddress = ParentDir->FileHeadAddress + DataNumber * sizeof( DARC_FILEHEAD_VER5 ) ;
+		Dir.DirectoryAddress = ParentDir->FileHeadAddress + DataNumber * sizeof( DARC_FILEHEAD_VER6 ) ;
 		Dir.FileHeadAddress  = Size->FileSize ;
 
 		// 親ディレクトリの情報位置をセット
-		if( ParentDir->DirectoryAddress != 0xffffffff && ParentDir->DirectoryAddress != 0 )
+		if( ParentDir->DirectoryAddress != 0xffffffffffffffff && ParentDir->DirectoryAddress != 0 )
 		{
-			Dir.ParentDirectoryAddress = ((DARC_FILEHEAD_VER5 *)( FileP + ParentDir->DirectoryAddress ))->DataAddress ;
+			Dir.ParentDirectoryAddress = ((DARC_FILEHEAD_VER6 *)( FileP + ParentDir->DirectoryAddress ))->DataAddress ;
 		}
 		else
 		{
@@ -696,15 +620,15 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 		}
 
 		// ディレクトリ中のファイルの数を取得する
-		Dir.FileHeadNum = GetDirectoryFilePath( TEXT(""), NULL ) ;
+		Dir.FileHeadNum = GetDirectoryFilePath(TEXT(""), NULL ) ;
 	}
 
 	// ディレクトリの情報を出力する
-	memcpy( DirP + Size->DirectorySize, &Dir, sizeof( DARC_DIRECTORY_VER5 ) ) ;	
+	memcpy( DirP + Size->DirectorySize, &Dir, sizeof( DARC_DIRECTORY_VER6 ) ) ;	
 
 	// アドレスを推移させる
-	Size->DirectorySize += sizeof( DARC_DIRECTORY_VER5 ) ;
-	Size->FileSize      += sizeof( DARC_FILEHEAD_VER5 ) * Dir.FileHeadNum ;
+	Size->DirectorySize += sizeof( DARC_DIRECTORY_VER6 ) ;
+	Size->FileSize      += sizeof( DARC_FILEHEAD_VER6 ) * Dir.FileHeadNum ;
 	
 	// ファイルが何も無い場合はここで終了
 	if( Dir.FileHeadNum == 0 )
@@ -721,7 +645,7 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 		i = 0 ;
 		
 		// 列挙開始
-		FindHandle = FindFirstFile( TEXT("*"), &FindData ) ;
+		FindHandle = FindFirstFile(TEXT("*"), &FindData ) ;
 		do
 		{
 			// 上のディレクトリに戻ったりするためのパスは無視する
@@ -744,35 +668,34 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 				File.Time.LastWrite  = ( ( ( LONGLONG )FindData.ftLastWriteTime.dwHighDateTime  ) << 32 ) + FindData.ftLastWriteTime.dwLowDateTime  ;
 				File.Attributes      = FindData.dwFileAttributes ;
 				File.DataAddress     = Size->DataSize ;
-				File.DataSize        = FindData.nFileSizeLow ;
-				File.PressDataSize   = 0xffffffff ;
+				File.DataSize        = ( ( ( LONGLONG )FindData.nFileSizeHigh ) << 32 ) + FindData.nFileSizeLow ;
+				File.PressDataSize   = 0xffffffffffffffff ;
 
 				// ファイル名を書き出す
 				Size->NameSize += AddFileNameData( FindData.cFileName, NameP + Size->NameSize ) ;
 				
 				// ファイルデータを書き出す
-				if( (u64)FindData.nFileSizeLow + ( (u64)FindData.nFileSizeHigh << 32 ) != 0 )
+				if( File.DataSize != 0 )
 				{
 					FILE *SrcP ;
-					u32 FileSize, WriteSize, MoveSize ;
+					u64 FileSize, WriteSize, MoveSize ;
 
 					// ファイルを開く
 					SrcP = _tfopen( FindData.cFileName, TEXT("rb") ) ;
 					
 					// サイズを得る
-					fseek( SrcP, 0, SEEK_END ) ;
-					FileSize = ftell( SrcP ) ;
-					fseek( SrcP, 0, SEEK_SET ) ;
+					_fseeki64( SrcP, 0, SEEK_END ) ;
+					FileSize = _ftelli64( SrcP ) ;
+					_fseeki64( SrcP, 0, SEEK_SET ) ;
 					
 					// ファイルサイズが 10MB 以下の場合で、圧縮の指定がある場合は圧縮を試みる
-					if( Press == true && (u64)FindData.nFileSizeLow + ( (u64)FindData.nFileSizeHigh << 32 ) < 10 * 1024 * 1024 )
+					if( Press == true && File.DataSize < 10 * 1024 * 1024 )
 					{
 						void *SrcBuf, *DestBuf ;
-						u32 DestSize;
-						size_t Len;
+						u32 DestSize, Len ;
 						
 						// 一部のファイル形式の場合は予め弾く
-						if( ( Len = _tcslen( FindData.cFileName ) ) > 4 )
+						if( ( Len = ( int )_tcslen( FindData.cFileName ) ) > 4 )
 						{
 							TCHAR *sp ;
 							
@@ -788,19 +711,19 @@ int DXArchive_VER5::DirectoryEncode( TCHAR *DirectoryName, u8 *NameP, u8 *DirP, 
 						}
 						
 						// データが丸ごと入るメモリ領域の確保
-						SrcBuf  = malloc( FileSize + FileSize * 2 + 64 ) ;
+						SrcBuf  = malloc( ( size_t )( FileSize + FileSize * 2 + 64 ) ) ;
 						DestBuf = (u8 *)SrcBuf + FileSize ;
 						
 						// ファイルを丸ごと読み込む
-						fread( SrcBuf, FileSize, 1, SrcP ) ;
+						fread64( SrcBuf, FileSize, SrcP ) ;
 						
 						// 圧縮
-						DestSize = Encode( SrcBuf, FileSize, DestBuf ) ;
+						DestSize = Encode( SrcBuf, ( u32 )FileSize, DestBuf ) ;
 						
 						// 殆ど圧縮出来なかった場合は圧縮無しでアーカイブする
 						if( (f64)DestSize / (f64)FileSize > 0.90 )
 						{
-							fseek( SrcP, 0L, SEEK_SET ) ;
+							_fseeki64( SrcP, 0L, SEEK_SET ) ;
 							free( SrcBuf ) ;
 							goto NOPRESS ;
 						}
@@ -823,14 +746,14 @@ NOPRESS:
 						while( WriteSize < FileSize )
 						{
 							// 転送サイズ決定
-							MoveSize = DXA_BUFFERSIZE_VER5 < FileSize - WriteSize ? DXA_BUFFERSIZE_VER5 : FileSize - WriteSize ;
+							MoveSize = DXA_BUFFERSIZE_VER6 < FileSize - WriteSize ? DXA_BUFFERSIZE_VER6 : FileSize - WriteSize ;
 							MoveSize = ( MoveSize + 3 ) / 4 * 4 ;	// サイズは４の倍数に合わせる
 							
 							// ファイルの反転読み込み
 							KeyConvFileRead( TempBuffer, MoveSize, SrcP, Key, File.DataSize + WriteSize ) ;
 
 							// 書き出し
-							fwrite( TempBuffer, MoveSize, 1, DestP ) ;
+							fwrite64( TempBuffer, MoveSize, DestP ) ;
 							
 							// 書き出しサイズの加算
 							WriteSize += MoveSize ;
@@ -845,7 +768,7 @@ NOPRESS:
 				}
 				
 				// ファイルヘッダを書き出す
-				memcpy( FileP + Dir.FileHeadAddress + sizeof( DARC_FILEHEAD_VER5 ) * i, &File, sizeof( DARC_FILEHEAD_VER5 ) ) ;
+				memcpy( FileP + Dir.FileHeadAddress + sizeof( DARC_FILEHEAD_VER6 ) * i, &File, sizeof( DARC_FILEHEAD_VER6 ) ) ;
 			}
 			
 			i ++ ;
@@ -863,8 +786,10 @@ NOPRESS:
 	return 0 ;
 }
 
+#include <vector>
+
 // 指定のディレクトリデータにあるファイルを展開する
-int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_VER5 *Head, DARC_DIRECTORY_VER5 *Dir, FILE *ArcP, unsigned char *Key )
+int DXArchive_VER6::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_VER6 *Head, DARC_DIRECTORY_VER6 *Dir, FILE *ArcP, unsigned char *Key )
 {
 	TCHAR DirPath[MAX_PATH] ;
 	
@@ -872,39 +797,39 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 	GetCurrentDirectory( MAX_PATH, DirPath ) ;
 
 	// ディレクトリ情報がある場合は、まず展開用のディレクトリを作成する
-	if( Dir->DirectoryAddress != 0xffffffff && Dir->ParentDirectoryAddress != 0xffffffff )
+	if( Dir->DirectoryAddress != 0xffffffffffffffff && Dir->ParentDirectoryAddress != 0xffffffffffffffff )
 	{
-		DARC_FILEHEAD_VER5 *DirFile ;
+		DARC_FILEHEAD_VER6 *DirFile ;
 		
-		// DARC_FILEHEAD_VER5 のアドレスを取得
-		DirFile = ( DARC_FILEHEAD_VER5 * )( FileP + Dir->DirectoryAddress ) ;
+		// DARC_FILEHEAD_VER6 のアドレスを取得
+		DirFile = ( DARC_FILEHEAD_VER6 * )( FileP + Dir->DirectoryAddress ) ;
 		
 		// ディレクトリの作成
 		TCHAR *pName = GetOriginalFileName(NameP + DirFile->NameAddress);
 		CreateDirectory( pName, NULL ) ;
 		delete[] pName;
-		
+
 		// そのディレクトリにカレントディレクトリを移す
 		pName = GetOriginalFileName(NameP + DirFile->NameAddress);
-		SetCurrentDirectory( pName ) ;
+		SetCurrentDirectory(pName) ;
 		delete[] pName;
 	}
 
 	// 展開処理開始
 	{
 		u32 i, FileHeadSize ;
-		DARC_FILEHEAD_VER5 *File ;
+		DARC_FILEHEAD_VER6 *File ;
 
 		// 格納されているファイルの数だけ繰り返す
-		FileHeadSize = Head->Version >= 0x0002 ? sizeof( DARC_FILEHEAD_VER5 ) : sizeof( DARC_FILEHEAD_VER1 ) ;
-		File = ( DARC_FILEHEAD_VER5 * )( FileP + Dir->FileHeadAddress ) ;
-		for( i = 0 ; i < Dir->FileHeadNum ; i ++, File = (DARC_FILEHEAD_VER5 *)( (u8 *)File + FileHeadSize ) )
+		FileHeadSize = sizeof( DARC_FILEHEAD_VER6 ) ;
+		File = ( DARC_FILEHEAD_VER6 * )( FileP + Dir->FileHeadAddress ) ;
+		for( i = 0 ; i < Dir->FileHeadNum ; i ++, File = (DARC_FILEHEAD_VER6 *)( (u8 *)File + FileHeadSize ) )
 		{
 			// ディレクトリかどうかで処理を分岐
 			if( File->Attributes & FILE_ATTRIBUTE_DIRECTORY )
 			{
 				// ディレクトリの場合は再帰をかける
-				DirectoryDecode( NameP, DirP, FileP, Head, ( DARC_DIRECTORY_VER5 * )( DirP + File->DataAddress ), ArcP, Key ) ;
+				DirectoryDecode( NameP, DirP, FileP, Head, ( DARC_DIRECTORY_VER6 * )( DirP + File->DataAddress ), ArcP, Key ) ;
 			}
 			else
 			{
@@ -914,46 +839,41 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 				// ファイルの場合は展開する
 				
 				// バッファを確保する
-				Buffer = malloc( DXA_BUFFERSIZE_VER5 ) ;
+				Buffer = malloc( DXA_BUFFERSIZE_VER6 ) ;
 				if( Buffer == NULL ) return -1 ;
 
 				// ファイルを開く
 				TCHAR *pName = GetOriginalFileName(NameP + File->NameAddress);
-				DestP = _tfopen( pName, TEXT("wb") ) ;
+
+				DestP = _tfopen(pName, TEXT("wb"));
+
 				delete[] pName;
-				
+			
 				// データがある場合のみ転送
 				if( File->DataSize != 0 )
 				{
 					// 初期位置をセットする
-					if( ftell( ArcP ) != ( s32 )( Head->DataStartAddress + File->DataAddress ) )
-						fseek( ArcP, Head->DataStartAddress + File->DataAddress, SEEK_SET ) ;
+					if( _ftelli64( ArcP ) != ( s32 )( Head->DataStartAddress + File->DataAddress ) )
+						_fseeki64( ArcP, Head->DataStartAddress + File->DataAddress, SEEK_SET ) ;
 						
 					// データが圧縮されているかどうかで処理を分岐
-					if( Head->Version >= 0x0002 && File->PressDataSize != 0xffffffff )
+					if( File->PressDataSize != 0xffffffffffffffff )
 					{
 						void *temp ;
 						
 						// 圧縮されている場合
 
 						// 圧縮データが収まるメモリ領域の確保
-						temp = malloc( File->PressDataSize + File->DataSize ) ;
+						temp = malloc( ( size_t )( File->PressDataSize + File->DataSize ) ) ;
 
 						// 圧縮データの読み込み
-						if( Head->Version >= 0x0005 )
-						{
-							KeyConvFileRead( temp, File->PressDataSize, ArcP, Key, File->DataSize ) ;
-						}
-						else
-						{
-							KeyConvFileRead( temp, File->PressDataSize, ArcP, Key ) ;
-						}
+						KeyConvFileRead( temp, File->PressDataSize, ArcP, Key, File->DataSize ) ;
 						
 						// 解凍
 						Decode( temp, (u8 *)temp + File->PressDataSize ) ;
 						
 						// 書き出し
-						fwrite( (u8 *)temp + File->PressDataSize, File->DataSize, 1, DestP ) ;
+						fwrite64( (u8 *)temp + File->PressDataSize, File->DataSize, DestP ) ;
 						
 						// メモリの解放
 						free( temp ) ;
@@ -964,25 +884,18 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 					
 						// 転送処理開始
 						{
-							u32 MoveSize, WriteSize ;
+							u64 MoveSize, WriteSize ;
 							
 							WriteSize = 0 ;
 							while( WriteSize < File->DataSize )
 							{
-								MoveSize = File->DataSize - WriteSize > DXA_BUFFERSIZE_VER5 ? DXA_BUFFERSIZE_VER5 : File->DataSize - WriteSize ;
+								MoveSize = File->DataSize - WriteSize > DXA_BUFFERSIZE_VER6 ? DXA_BUFFERSIZE_VER6 : File->DataSize - WriteSize ;
 
 								// ファイルの反転読み込み
-								if( Head->Version >= 0x0005 )
-								{
-									KeyConvFileRead( Buffer, MoveSize, ArcP, Key, File->DataSize + WriteSize ) ;
-								}
-								else
-								{
-									KeyConvFileRead( Buffer, MoveSize, ArcP, Key ) ;
-								}
+								KeyConvFileRead( Buffer, MoveSize, ArcP, Key, File->DataSize + WriteSize ) ;
 
 								// 書き出し
-								fwrite( Buffer, MoveSize, 1, DestP ) ;
+								fwrite64( Buffer, MoveSize, DestP ) ;
 								
 								WriteSize += MoveSize ;
 							}
@@ -1000,9 +913,8 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 				{
 					HANDLE HFile ;
 					FILETIME CreateTime, LastAccessTime, LastWriteTime ;
-
 					TCHAR *pName = GetOriginalFileName(NameP + File->NameAddress);
-					HFile = CreateFile( pName,
+					HFile = CreateFile(pName,
 										GENERIC_WRITE, 0, NULL,
 										OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL ) ;
 					delete[] pName;
@@ -1013,18 +925,18 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 					}
 
 					CreateTime.dwHighDateTime     = ( u32 )( File->Time.Create     >> 32        ) ;
-					CreateTime.dwLowDateTime      = ( u32 )( File->Time.Create     & 0xffffffff ) ;
+					CreateTime.dwLowDateTime      = ( u32 )( File->Time.Create     & 0xffffffffffffffff ) ;
 					LastAccessTime.dwHighDateTime = ( u32 )( File->Time.LastAccess >> 32        ) ;
-					LastAccessTime.dwLowDateTime  = ( u32 )( File->Time.LastAccess & 0xffffffff ) ;
+					LastAccessTime.dwLowDateTime  = ( u32 )( File->Time.LastAccess & 0xffffffffffffffff ) ;
 					LastWriteTime.dwHighDateTime  = ( u32 )( File->Time.LastWrite  >> 32        ) ;
-					LastWriteTime.dwLowDateTime   = ( u32 )( File->Time.LastWrite  & 0xffffffff ) ;
+					LastWriteTime.dwLowDateTime   = ( u32 )( File->Time.LastWrite  & 0xffffffffffffffff ) ;
 					SetFileTime( HFile, &CreateTime, &LastAccessTime, &LastWriteTime ) ;
 					CloseHandle( HFile ) ;
 				}
 
 				// ファイル属性を付ける
 				pName = GetOriginalFileName(NameP + File->NameAddress);
-				SetFileAttributes( pName, File->Attributes ) ;
+				SetFileAttributes( pName, ( u32 )File->Attributes ) ;
 				delete[] pName;
 			}
 		}
@@ -1038,7 +950,7 @@ int DXArchive_VER5::DirectoryDecode( u8 *NameP, u8 *DirP, u8 *FileP, DARC_HEAD_V
 }
 
 // ディレクトリ内のファイルパスを取得する
-int DXArchive_VER5::GetDirectoryFilePath( const TCHAR *DirectoryPath, TCHAR *FileNameBuffer )
+int DXArchive_VER6::GetDirectoryFilePath( const TCHAR *DirectoryPath, TCHAR *FileNameBuffer )
 {
 	WIN32_FIND_DATA FindData ;
 	HANDLE FindHandle ;
@@ -1095,7 +1007,7 @@ int DXArchive_VER5::GetDirectoryFilePath( const TCHAR *DirectoryPath, TCHAR *Fil
 }
 
 // エンコード( 戻り値:圧縮後のサイズ  -1 はエラー  Dest に NULL を入れることも可能 )
-int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
+int DXArchive_VER6::Encode( void *Src, u32 SrcSize, void *Dest )
 {
 	s32 dstsize ;
 	s32    bonus,    conbo,    conbosize,    address,    addresssize ;
@@ -1106,19 +1018,19 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 	u32 i, m ;
 	u32 maxlistnum, maxlistnummask, listaddp ;
 	u32 sublistnum, sublistmaxnum ;
-	LZ_LIST_VER5 *listbuf, *listtemp, *list, *newlist ;
+	LZ_LIST *listbuf, *listtemp, *list, *newlist ;
 	u8 *listfirsttable, *usesublistflagtable, *sublistbuf ;
 	
 	// サブリストのサイズを決める
 	{
 			 if( SrcSize < 100 * 1024 )			sublistmaxnum = 1 ;
-		else if( SrcSize < 3 * 1024 * 1024 )	sublistmaxnum = MAX_SUBLISTNUM_VER5 / 3 ;
-		else									sublistmaxnum = MAX_SUBLISTNUM_VER5 ;
+		else if( SrcSize < 3 * 1024 * 1024 )	sublistmaxnum = MAX_SUBLISTNUM / 3 ;
+		else									sublistmaxnum = MAX_SUBLISTNUM ;
 	}
 
 	// リストのサイズを決める
 	{
-		maxlistnum = MAX_ADDRESSLISTNUM_VER5 ;
+		maxlistnum = MAX_ADDRESSLISTNUM ;
 		if( maxlistnum > SrcSize )
 		{
 			while( ( maxlistnum >> 1 ) > 0x100 && ( maxlistnum >> 1 ) > SrcSize )
@@ -1129,20 +1041,20 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 
 	// メモリの確保
 	usesublistflagtable   = (u8 *)malloc(
-		sizeof( u32 )     * 65536 +					// メインリストの先頭オブジェクト用領域
-		sizeof( LZ_LIST_VER5 ) * maxlistnum +			// メインリスト用領域
+		sizeof( void * )  * 65536 +					// メインリストの先頭オブジェクト用領域
+		sizeof( LZ_LIST ) * maxlistnum +			// メインリスト用領域
 		sizeof( u8 )      * 65536 +					// サブリストを使用しているかフラグ用領域
-		sizeof( u32 )     * 256 * sublistmaxnum ) ;	// サブリスト用領域
+		sizeof( void * )  * 256 * sublistmaxnum ) ;	// サブリスト用領域
 		
 	// アドレスのセット
-	listfirsttable =     usesublistflagtable + sizeof(  u8 ) * 65536 ;
-	sublistbuf     =          listfirsttable + sizeof( u32 ) * 65536 ;
-	listbuf        = (LZ_LIST_VER5 *)( sublistbuf + sizeof( u32 ) * 256 * sublistmaxnum ) ;
+	listfirsttable =     usesublistflagtable + sizeof(     u8 ) * 65536 ;
+	sublistbuf     =          listfirsttable + sizeof( void * ) * 65536 ;
+	listbuf        = (LZ_LIST *)( sublistbuf + sizeof( void * ) * 256 * sublistmaxnum ) ;
 	
 	// 初期化
-	memset( usesublistflagtable, 0, sizeof(  u8 ) * 65536               ) ;
-	memset(          sublistbuf, 0, sizeof( u32 ) * 256 * sublistmaxnum ) ;
-	memset(      listfirsttable, 0, sizeof( u32 ) * 65536               ) ;
+	memset( usesublistflagtable, 0, sizeof(     u8 ) * 65536               ) ;
+	memset(          sublistbuf, 0, sizeof( void * ) * 256 * sublistmaxnum ) ;
+	memset(      listfirsttable, 0, sizeof( void * ) * 65536               ) ;
 	list = listbuf ;
 	for( i = maxlistnum / 8 ; i ; i --, list += 8 )
 	{
@@ -1210,21 +1122,21 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 	while( srcaddress < SrcSize )
 	{
 		// 残りサイズが最低圧縮サイズ以下の場合は圧縮処理をしない
-		if( srcaddress + MIN_COMPRESS_VER5 >= SrcSize ) goto NOENCODE ;
+		if( srcaddress + MIN_COMPRESS >= SrcSize ) goto NOENCODE ;
 
 		// リストを取得
 		code = *((u16 *)sp) ;
-		list = (LZ_LIST_VER5 *)( listfirsttable + code * sizeof( u32 ) ) ;
+		list = (LZ_LIST *)( listfirsttable + code * sizeof( void * ) ) ;
 		if( usesublistflagtable[code] == 1 )
 		{
-			list = (LZ_LIST_VER5 *)( (u32 *)list->next + sp[2] ) ;
+			list = (LZ_LIST *)( (void **)list->next + sp[2] ) ;
 		}
 		else
 		{
 			if( sublistnum < sublistmaxnum )
 			{
-				list->next = (LZ_LIST_VER5 *)( sublistbuf + sizeof( u32 ) * 256 * sublistnum ) ;
-				list       = (LZ_LIST_VER5 *)( (u32 *)list->next + sp[2] ) ;
+				list->next = (LZ_LIST *)( sublistbuf + sizeof( void * ) * 256 * sublistnum ) ;
+				list       = (LZ_LIST *)( (void **)list->next + sp[2] ) ;
 			
 				usesublistflagtable[code] = 1 ;
 				sublistnum ++ ;
@@ -1235,10 +1147,10 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 		maxconbo   = -1 ;
 		maxaddress = -1 ;
 		maxbonus   = -1 ;
-		for( m = 0, listtemp = list->next ; m < MAX_SEARCHLISTNUM_VER5 && listtemp != NULL ; listtemp = listtemp->next, m ++ )
+		for( m = 0, listtemp = list->next ; m < MAX_SEARCHLISTNUM && listtemp != NULL ; listtemp = listtemp->next, m ++ )
 		{
 			address = srcaddress - listtemp->address ;
-			if( address >= MAX_POSITION_VER5 )
+			if( address >= MAX_POSITION )
 			{
 				if( listtemp->prev ) listtemp->prev->next = listtemp->next ;
 				if( listtemp->next ) listtemp->next->prev = listtemp->prev ;
@@ -1248,16 +1160,16 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 			
 			sp2 = &sp[-address] ;
 			sp1 = sp ;
-			if( srcaddress + MAX_COPYSIZE_VER5 < SrcSize )
+			if( srcaddress + MAX_COPYSIZE < SrcSize )
 			{
-				conbo = MAX_COPYSIZE_VER5 / 4 ;
+				conbo = MAX_COPYSIZE / 4 ;
 				while( conbo && *((u32 *)sp2) == *((u32 *)sp1) )
 				{
 					sp2 += 4 ;
 					sp1 += 4 ;
 					conbo -- ;
 				}
-				conbo = MAX_COPYSIZE_VER5 - ( MAX_COPYSIZE_VER5 / 4 - conbo ) * 4 ;
+				conbo = MAX_COPYSIZE - ( MAX_COPYSIZE / 4 - conbo ) * 4 ;
 
 				while( conbo && *sp2 == *sp1 )
 				{
@@ -1265,12 +1177,12 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 					sp1 ++ ;
 					conbo -- ;
 				}
-				conbo = MAX_COPYSIZE_VER5 - conbo ;
+				conbo = MAX_COPYSIZE - conbo ;
 			}
 			else
 			{
 				for( conbo = 0 ;
-						conbo < MAX_COPYSIZE_VER5 &&
+						conbo < MAX_COPYSIZE &&
 						conbo + srcaddress < SrcSize &&
 						sp[conbo - address] == sp[conbo] ;
 							conbo ++ ){}
@@ -1278,7 +1190,7 @@ int DXArchive_VER5::Encode( void *Src, unsigned int SrcSize, void *Dest )
 
 			if( conbo >= 4 )
 			{
-				conbosize   = ( conbo - MIN_COMPRESS_VER5 ) < 0x20 ? 0 : 1 ;
+				conbosize   = ( conbo - MIN_COMPRESS ) < 0x20 ? 0 : 1 ;
 				addresssize = address < 0x100 ? 0 : ( address < 0x10000 ? 1 : 2 ) ;
 				bonus       = conbo - ( 3 + conbosize + addresssize ) ;
 
@@ -1345,8 +1257,8 @@ NOENCODE:
 				// キーコードの出力
 				*dp++ = keycode ;
 
-				// 出力する連続長は最低 MIN_COMPRESS_VER5 あることが前提なので - MIN_COMPRESS_VER5 したものを出力する
-				maxconbo -= MIN_COMPRESS_VER5 ;
+				// 出力する連続長は最低 MIN_COMPRESS あることが前提なので - MIN_COMPRESS したものを出力する
+				maxconbo -= MIN_COMPRESS ;
 
 				// 連続長０～４ビットと連続長、相対アドレスのビット長を出力
 				*dp = (u8)( ( ( maxconbo & 0x1f ) << 3 ) | ( maxconbosize << 2 ) | maxaddresssize ) ;
@@ -1360,8 +1272,8 @@ NOENCODE:
 				if( maxconbosize == 1 )
 					*dp++ = (u8)( ( maxconbo >> 5 ) & 0xff ) ;
 
-				// maxconbo はまだ使うため - MIN_COMPRESS_VER5 した分を戻す
-				maxconbo += MIN_COMPRESS_VER5 ;
+				// maxconbo はまだ使うため - MIN_COMPRESS した分を戻す
+				maxconbo += MIN_COMPRESS ;
 
 				// 出力する相対アドレスは０が( 現在のアドレス－１ )を挿すので、－１したものを出力する
 				maxaddress -- ;
@@ -1383,20 +1295,20 @@ NOENCODE:
 			if( srcaddress + maxconbo < SrcSize )
 			{
 				sp2 = &sp[1] ;
-				for( j = 1 ; j < maxconbo && (u32)&sp2[2] - (u32)srcp < SrcSize ; j ++, sp2 ++ )
+				for( j = 1 ; j < maxconbo && (u64)&sp2[2] - (u64)srcp < SrcSize ; j ++, sp2 ++ )
 				{
 					code = *((u16 *)sp2) ;
-					list = (LZ_LIST_VER5 *)( listfirsttable + code * sizeof( u32 ) ) ;
+					list = (LZ_LIST *)( listfirsttable + code * sizeof( void * ) ) ;
 					if( usesublistflagtable[code] == 1 )
 					{
-						list = (LZ_LIST_VER5 *)( (u32 *)list->next + sp2[2] ) ;
+						list = (LZ_LIST *)( (void **)list->next + sp2[2] ) ;
 					}
 					else
 					{
 						if( sublistnum < sublistmaxnum )
 						{
-							list->next = (LZ_LIST_VER5 *)( sublistbuf + sizeof( u32 ) * 256 * sublistnum ) ;
-							list       = (LZ_LIST_VER5 *)( (u32 *)list->next + sp2[2] ) ;
+							list->next = (LZ_LIST *)( sublistbuf + sizeof( void * ) * 256 * sublistnum ) ;
+							list       = (LZ_LIST *)( (void **)list->next + sp2[2] ) ;
 						
 							usesublistflagtable[code] = 1 ;
 							sublistnum ++ ;
@@ -1441,7 +1353,7 @@ NOENCODE:
 }
 
 // デコード( 戻り値:解凍後のサイズ  -1 はエラー  Dest に NULL を入れることも可能 )
-int DXArchive_VER5::Decode( void *Src, void *Dest )
+int DXArchive_VER6::Decode( void *Src, void *Dest )
 {
 	u32 srcsize, destsize, code, indexsize, keycode, conbo, index ;
 	u8 *srcp, *destp, *dp, *sp ;
@@ -1507,7 +1419,7 @@ int DXArchive_VER5::Decode( void *Src, void *Dest )
 			sp      ++ ;
 			srcsize -- ;
 		}
-		conbo += MIN_COMPRESS_VER5 ;	// 保存時に減算した最小圧縮バイト数を足す
+		conbo += MIN_COMPRESS ;	// 保存時に減算した最小圧縮バイト数を足す
 
 		// 参照相対アドレスを取得する
 		indexsize = code & 0x3 ;
@@ -1565,7 +1477,7 @@ int DXArchive_VER5::Decode( void *Src, void *Dest )
 
 
 // アーカイブファイルを作成する(ディレクトリ一個だけ)
-int DXArchive_VER5::EncodeArchiveOneDirectory(TCHAR *OutputFileName, TCHAR *DirectoryPath, bool Press, const char *KeyString )
+int DXArchive_VER6::EncodeArchiveOneDirectory(TCHAR *OutputFileName, TCHAR *DirectoryPath, bool Press, const char *KeyString )
 {
 	int i, FileNum, Result ;
 	TCHAR **FilePathList, *NameBuffer ;
@@ -1575,7 +1487,7 @@ int DXArchive_VER5::EncodeArchiveOneDirectory(TCHAR *OutputFileName, TCHAR *Dire
 	if( FileNum < 0 ) return -1 ;
 
 	// ファイルの数の分だけファイル名とファイルポインタの格納用のメモリを確保する
-	NameBuffer = (TCHAR *)malloc( FileNum * ( 256 + 4 ) ) ;
+	NameBuffer = (TCHAR *)malloc( FileNum * ( 256 + sizeof(TCHAR * ) ) ) ;
 
 	// ファイルのパスを取得する
 	GetDirectoryFilePath( DirectoryPath, NameBuffer ) ;
@@ -1596,51 +1508,54 @@ int DXArchive_VER5::EncodeArchiveOneDirectory(TCHAR *OutputFileName, TCHAR *Dire
 }
 
 // アーカイブファイルを作成する
-int DXArchive_VER5::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectoryPath, int FileNum, bool Press, const char *KeyString )
+int DXArchive_VER6::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectoryPath, int FileNum, bool Press, const char *KeyString )
 {
-	DARC_HEAD_VER5 Head ;
-	DARC_DIRECTORY_VER5 Directory ;
+	DARC_HEAD_VER6 Head ;
+	DARC_DIRECTORY_VER6 Directory ;
 	SIZESAVE SizeSave ;
 	FILE *DestFp ;
 	u8 *NameP, *FileP, *DirP ;
 	int i ;
 	u32 Type ;
 	void *TempBuffer ;
-	u8 Key[DXA_KEYSTR_LENGTH_VER5] ;
+	u8 Key[DXA_KEYSTR_LENGTH_VER6] ;
 
 	// 鍵文字列の作成
 	KeyCreate( KeyString, Key ) ;
 
 	// ファイル読み込みに使用するバッファの確保
-	TempBuffer = malloc( DXA_BUFFERSIZE_VER5 ) ;
+	TempBuffer = malloc( DXA_BUFFERSIZE_VER6 ) ;
 	
 	// 出力ファイルを開く
 	DestFp = _tfopen( OutputFileName, TEXT("wb") ) ;
 
 	// アーカイブのヘッダを出力する
 	{
-		Head.Head						= DXA_HEAD_VER5 ;
-		Head.Version					= DXA_VER_VER5 ;
+		Head.Head						= DXA_HEAD_VER6 ;
+		Head.Version					= DXA_VER_VER6 ;
 		Head.HeadSize					= 0xffffffff ;
-		Head.DataStartAddress			= sizeof( DARC_HEAD_VER5 ) ;
-		Head.FileNameTableStartAddress	= 0xffffffff ;
-		Head.DirectoryTableStartAddress	= 0xffffffff ;
-		Head.FileTableStartAddress		= 0xffffffff ;
+		Head.DataStartAddress			= sizeof( DARC_HEAD_VER6 ) ;
+		Head.FileNameTableStartAddress	= 0xffffffffffffffff ;
+		Head.DirectoryTableStartAddress	= 0xffffffffffffffff ;
+		Head.FileTableStartAddress		= 0xffffffffffffffff ;
 		Head.CodePage					= GetACP() ;
 		SetFileApisToANSI() ;
 
-		KeyConvFileWrite( &Head, sizeof( DARC_HEAD_VER5 ), DestFp, Key, 0 ) ;
+		KeyConvFileWrite( &Head, sizeof( DARC_HEAD_VER6 ), DestFp, Key, 0 ) ;
 	}
 	
 	// 各バッファを確保する
-	if( ( NameP = ( u8 * )malloc( DXA_BUFFERSIZE_VER5 ) ) == NULL ) return -1 ;
-	memset( NameP, 0, DXA_BUFFERSIZE_VER5 ) ;
+	NameP = ( u8 * )malloc( DXA_BUFFERSIZE_VER6 ) ;
+	if( NameP == NULL ) return -1 ;
+	memset( NameP, 0, DXA_BUFFERSIZE_VER6 ) ;
 
-	if( ( FileP = ( u8 * )malloc( DXA_BUFFERSIZE_VER5 ) ) == NULL ) return -1 ;
-	memset( FileP, 0, DXA_BUFFERSIZE_VER5 ) ;
+	FileP = ( u8 * )malloc( DXA_BUFFERSIZE_VER6 ) ;
+	if( FileP == NULL ) return -1 ;
+	memset( FileP, 0, DXA_BUFFERSIZE_VER6 ) ;
 
-	if( ( DirP = ( u8 * )malloc( DXA_BUFFERSIZE_VER5 ) ) == NULL ) return -1 ;
-	memset( DirP, 0, DXA_BUFFERSIZE_VER5 ) ;
+	DirP = ( u8 * )malloc( DXA_BUFFERSIZE_VER6 ) ;
+	if( DirP == NULL ) return -1 ;
+	memset( DirP, 0, DXA_BUFFERSIZE_VER6 ) ;
 
 	// サイズ保存構造体にデータをセット
 	SizeSave.DataSize		= 0 ;
@@ -1650,33 +1565,33 @@ int DXArchive_VER5::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectory
 	
 	// 最初のディレクトリのファイル情報を書き出す
 	{
-		DARC_FILEHEAD_VER5 File ;
+		DARC_FILEHEAD_VER6 File ;
 		
-		memset( &File, 0, sizeof( DARC_FILEHEAD_VER5 ) ) ;
+		memset( &File, 0, sizeof( DARC_FILEHEAD_VER6 ) ) ;
 		File.NameAddress	= SizeSave.NameSize ;
 		File.Attributes		= FILE_ATTRIBUTE_DIRECTORY ;
 		File.DataAddress	= SizeSave.DirectorySize ;
 		File.DataSize		= 0 ;
-		File.PressDataSize  = 0xffffffff ;
+		File.PressDataSize  = 0xffffffffffffffff ;
 
 		// ディレクトリ名の書き出し
-		SizeSave.NameSize += AddFileNameData( TEXT(""), NameP + SizeSave.NameSize ) ;
+		SizeSave.NameSize += AddFileNameData(TEXT(""), NameP + SizeSave.NameSize ) ;
 
 		// ファイル情報の書き出し
-		memcpy( FileP + SizeSave.FileSize, &File, sizeof( DARC_FILEHEAD_VER5 ) ) ;
-		SizeSave.FileSize += sizeof( DARC_FILEHEAD_VER5 ) ;
+		memcpy( FileP + SizeSave.FileSize, &File, sizeof( DARC_FILEHEAD_VER6 ) ) ;
+		SizeSave.FileSize += sizeof( DARC_FILEHEAD_VER6 ) ;
 	}
 
 	// 最初のディレクトリ情報を書き出す
 	Directory.DirectoryAddress 			= 0 ;
-	Directory.ParentDirectoryAddress 	= 0xffffffff ;
+	Directory.ParentDirectoryAddress 	= 0xffffffffffffffff ;
 	Directory.FileHeadNum 				= FileNum ;
 	Directory.FileHeadAddress 			= SizeSave.FileSize ;
-	memcpy( DirP + SizeSave.DirectorySize, &Directory, sizeof( DARC_DIRECTORY_VER5 ) ) ;
+	memcpy( DirP + SizeSave.DirectorySize, &Directory, sizeof( DARC_DIRECTORY_VER6 ) ) ;
 
 	// サイズを加算する
-	SizeSave.DirectorySize 	+= sizeof( DARC_DIRECTORY_VER5 ) ;
-	SizeSave.FileSize 		+= sizeof( DARC_FILEHEAD_VER5 ) * FileNum ;
+	SizeSave.DirectorySize 	+= sizeof( DARC_DIRECTORY_VER6 ) ;
+	SizeSave.FileSize 		+= sizeof( DARC_FILEHEAD_VER6 ) * FileNum ;
 
 	// 渡されたファイルの数だけ処理を繰り返す
 	for( i = 0 ; i < FileNum ; i ++ )
@@ -1695,7 +1610,7 @@ int DXArchive_VER5::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectory
 		{
 			WIN32_FIND_DATA FindData ;
 			HANDLE FindHandle ;
-			DARC_FILEHEAD_VER5 File ;
+			DARC_FILEHEAD_VER6 File ;
 	
 			// ファイルの情報を得る
 			FindHandle = FindFirstFile( FileOrDirectoryPath[i], &FindData ) ;
@@ -1709,36 +1624,35 @@ int DXArchive_VER5::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectory
 				File.Time.LastWrite  = ( ( ( LONGLONG )FindData.ftLastWriteTime.dwHighDateTime  ) << 32 ) + FindData.ftLastWriteTime.dwLowDateTime  ;
 				File.Attributes      = FindData.dwFileAttributes ;
 				File.DataAddress     = SizeSave.DataSize ;
-				File.DataSize        = FindData.nFileSizeLow ;
-				File.PressDataSize	 = 0xffffffff ;
+				File.DataSize        = ( ( ( LONGLONG )FindData.nFileSizeHigh ) << 32 ) + FindData.nFileSizeLow ;
+				File.PressDataSize	 = 0xffffffffffffffff ;
 			}
 
 			// ファイル名を書き出す
 			SizeSave.NameSize += AddFileNameData( FindData.cFileName, NameP + SizeSave.NameSize ) ;
 
 			// ファイルデータを書き出す
-			if( (u64)FindData.nFileSizeLow + ( (u64)FindData.nFileSizeHigh << 32 ) != 0 )
+			if( File.DataSize != 0 )
 			{
 				FILE *SrcP ;
-				u32 FileSize, WriteSize, MoveSize ;
+				u64 FileSize, WriteSize, MoveSize ;
 
 				// ファイルを開く
 				SrcP = _tfopen( FileOrDirectoryPath[i], TEXT("rb") ) ;
 				
 				// サイズを得る
-				fseek( SrcP, 0, SEEK_END ) ;
-				FileSize = ftell( SrcP ) ;
-				fseek( SrcP, 0, SEEK_SET ) ;
+				_fseeki64( SrcP, 0, SEEK_END ) ;
+				FileSize = _ftelli64( SrcP ) ;
+				_fseeki64( SrcP, 0, SEEK_SET ) ;
 				
 				// ファイルサイズが 10MB 以下の場合で、圧縮の指定がある場合は圧縮を試みる
-				if( Press == true && (u64)FindData.nFileSizeLow + ( (u64)FindData.nFileSizeHigh << 32 ) < 10 * 1024 * 1024 )
+				if( Press == true && File.DataSize < 10 * 1024 * 1024 )
 				{
 					void *SrcBuf, *DestBuf ;
-					u32 DestSize;
-					size_t Len;
+					u32 DestSize, Len ;
 					
 					// 一部のファイル形式の場合は予め弾く
-					if( ( Len = _tcslen( FindData.cFileName ) ) > 4 )
+					if( ( Len = ( int )_tcslen( FindData.cFileName ) ) > 4 )
 					{
 						TCHAR *sp ;
 						
@@ -1754,19 +1668,19 @@ int DXArchive_VER5::EncodeArchive(TCHAR *OutputFileName, TCHAR **FileOrDirectory
 					}
 					
 					// データが丸ごと入るメモリ領域の確保
-					SrcBuf  = malloc( FileSize + FileSize * 2 + 64 ) ;
+					SrcBuf  = malloc( ( size_t )( FileSize + FileSize * 2 + 64 ) ) ;
 					DestBuf = (u8 *)SrcBuf + FileSize ;
 					
 					// ファイルを丸ごと読み込む
-					fread( SrcBuf, FileSize, 1, SrcP ) ;
+					fread64( SrcBuf, FileSize, SrcP ) ;
 					
 					// 圧縮
-					DestSize = Encode( SrcBuf, FileSize, DestBuf ) ;
+					DestSize = Encode( SrcBuf, ( u32 )FileSize, DestBuf ) ;
 					
 					// 殆ど圧縮出来なかった場合は圧縮無しでアーカイブする
 					if( (f64)DestSize / (f64)FileSize > 0.90 )
 					{
-						fseek( SrcP, 0L, SEEK_SET ) ;
+						_fseeki64( SrcP, 0L, SEEK_SET ) ;
 						free( SrcBuf ) ;
 						goto NOPRESS ;
 					}
@@ -1789,14 +1703,14 @@ NOPRESS:
 					while( WriteSize < FileSize )
 					{
 						// 転送サイズ決定
-						MoveSize = DXA_BUFFERSIZE_VER5 < FileSize - WriteSize ? DXA_BUFFERSIZE_VER5 : FileSize - WriteSize ;
+						MoveSize = DXA_BUFFERSIZE_VER6 < FileSize - WriteSize ? DXA_BUFFERSIZE_VER6 : FileSize - WriteSize ;
 						MoveSize = ( MoveSize + 3 ) / 4 * 4 ;	// サイズは４の倍数に合わせる
 						
 						// ファイルの反転読み込み
 						KeyConvFileRead( TempBuffer, MoveSize, SrcP, Key, File.DataSize + WriteSize ) ;
 
 						// 書き出し
-						fwrite( TempBuffer, MoveSize, 1, DestFp ) ;
+						fwrite64( TempBuffer, MoveSize, DestFp ) ;
 						
 						// 書き出しサイズの加算
 						WriteSize += MoveSize ;
@@ -1811,7 +1725,7 @@ NOPRESS:
 			}
 			
 			// ファイルヘッダを書き出す
-			memcpy( FileP + Directory.FileHeadAddress + sizeof( DARC_FILEHEAD_VER5 ) * i, &File, sizeof( DARC_FILEHEAD_VER5 ) ) ;
+			memcpy( FileP + Directory.FileHeadAddress + sizeof( DARC_FILEHEAD_VER6 ) * i, &File, sizeof( DARC_FILEHEAD_VER6 ) ) ;
 
 			// Find ハンドルを閉じる
 			FindClose( FindHandle ) ;
@@ -1820,7 +1734,7 @@ NOPRESS:
 	
 	// バッファに溜め込んだ各種ヘッダデータを出力する
 	{
-		// 出力する順番は ファイルネームテーブル、 DARC_FILEHEAD_VER5 テーブル、 DARC_DIRECTORY_VER5 テーブル の順
+		// 出力する順番は ファイルネームテーブル、 DARC_FILEHEAD_VER6 テーブル、 DARC_DIRECTORY_VER6 テーブル の順
 		KeyConvFileWrite( NameP, SizeSave.NameSize,      DestFp, Key, 0 ) ;
 		KeyConvFileWrite( FileP, SizeSave.FileSize,      DestFp, Key, SizeSave.NameSize ) ;
 		KeyConvFileWrite( DirP,  SizeSave.DirectorySize, DestFp, Key, SizeSave.NameSize + SizeSave.FileSize ) ;
@@ -1828,16 +1742,16 @@ NOPRESS:
 		
 	// 再びアーカイブのヘッダを出力する
 	{
-		Head.Head                       = DXA_HEAD_VER5 ;
-		Head.Version                    = DXA_VER_VER5 ;
-		Head.HeadSize                   = SizeSave.NameSize + SizeSave.DirectorySize + SizeSave.FileSize  ;
-		Head.DataStartAddress           = sizeof( DARC_HEAD_VER5 ) ;
+		Head.Head                       = DXA_HEAD_VER6 ;
+		Head.Version                    = DXA_VER_VER6 ;
+		Head.HeadSize                   = ( u32 )( SizeSave.NameSize + SizeSave.DirectorySize + SizeSave.FileSize ) ;
+		Head.DataStartAddress           = sizeof( DARC_HEAD_VER6 ) ;
 		Head.FileNameTableStartAddress  = SizeSave.DataSize + Head.DataStartAddress ;
 		Head.FileTableStartAddress      = SizeSave.NameSize ;
 		Head.DirectoryTableStartAddress = Head.FileTableStartAddress + SizeSave.FileSize ;
 
-		fseek( DestFp, 0, SEEK_SET ) ;
-		KeyConvFileWrite( &Head, sizeof( DARC_HEAD_VER5 ), DestFp, Key, 0 ) ;
+		_fseeki64( DestFp, 0, SEEK_SET ) ;
+		KeyConvFileWrite( &Head, sizeof( DARC_HEAD_VER6 ), DestFp, Key, 0 ) ;
 	}
 	
 	// 書き出したファイルを閉じる
@@ -1854,14 +1768,14 @@ NOPRESS:
 }
 
 // アーカイブファイルを展開する
-int DXArchive_VER5::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const char *KeyString )
+int DXArchive_VER6::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, const char *KeyString )
 {
 	u8 *HeadBuffer = NULL ;
-	DARC_HEAD_VER5 Head ;
+	DARC_HEAD_VER6 Head ;
 	u8 *FileP, *NameP, *DirP ;
 	FILE *ArcP = NULL ;
 	TCHAR OldDir[MAX_PATH] ;
-	u8 Key[DXA_KEYSTR_LENGTH_VER5] ;
+	u8 Key[DXA_KEYSTR_LENGTH_VER6] ;
 
 	// 鍵文字列の作成
 	KeyCreate( KeyString, Key ) ;
@@ -1876,39 +1790,22 @@ int DXArchive_VER5::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, c
 
 	// ヘッダを解析する
 	{
-		KeyConvFileRead( &Head, sizeof( DARC_HEAD_VER5 ), ArcP, Key, 0 ) ;
+		KeyConvFileRead( &Head, sizeof( DARC_HEAD_VER6 ), ArcP, Key, 0 ) ;
 
 		// ＩＤの検査
-		if( Head.Head != DXA_HEAD_VER5 )
-		{
-			// バージョン２以前か調べる
-			memset( Key, 0xffffffff, DXA_KEYSTR_LENGTH_VER5 ) ;
-
-			fseek( ArcP, 0L, SEEK_SET ) ;
-			KeyConvFileRead( &Head, sizeof( DARC_HEAD_VER5 ), ArcP, Key, 0 ) ;
-
-			// バージョン２以前でもない場合はエラー
-			if( Head.Head != DXA_HEAD_VER5 )
-				goto ERR ;
-		}
+		if( Head.Head != DXA_HEAD_VER6 )
+			goto ERR ;
 		
 		// バージョン検査
-		if( Head.Version > DXA_VER_VER5 ) goto ERR ;
+		if( Head.Version > DXA_VER_VER6 || Head.Version < 0x0006 ) goto ERR ;
 		
 		// ヘッダのサイズ分のメモリを確保する
-		HeadBuffer = ( u8 * )malloc( Head.HeadSize ) ;
+		HeadBuffer = ( u8 * )malloc( ( size_t )Head.HeadSize ) ;
 		if( HeadBuffer == NULL ) goto ERR ;
 		
 		// ヘッダパックをメモリに読み込む
-		fseek( ArcP, Head.FileNameTableStartAddress, SEEK_SET ) ;
-		if( Head.Version >= 0x0005 )
-		{
-			KeyConvFileRead( HeadBuffer, Head.HeadSize, ArcP, Key, 0 ) ;
-		}
-		else
-		{
-			KeyConvFileRead( HeadBuffer, Head.HeadSize, ArcP, Key ) ;
-		}
+		_fseeki64( ArcP, Head.FileNameTableStartAddress, SEEK_SET ) ;
+		KeyConvFileRead( HeadBuffer, Head.HeadSize, ArcP, Key, 0 ) ;
 		
 		// 各アドレスをセットする
 		NameP = HeadBuffer ;
@@ -1917,7 +1814,7 @@ int DXArchive_VER5::DecodeArchive(TCHAR *ArchiveName, const TCHAR *OutputPath, c
 	}
 
 	// アーカイブの展開を開始する
-	DirectoryDecode( NameP, DirP, FileP, &Head, ( DARC_DIRECTORY_VER5 * )DirP, ArcP, Key ) ;
+	DirectoryDecode( NameP, DirP, FileP, &Head, ( DARC_DIRECTORY_VER6 * )DirP, ArcP, Key ) ;
 	
 	// ファイルを閉じる
 	fclose( ArcP ) ;
@@ -1945,7 +1842,7 @@ ERR :
 
 
 // コンストラクタ
-DXArchive_VER5::DXArchive_VER5(TCHAR *ArchivePath )
+DXArchive_VER6::DXArchive_VER6(TCHAR *ArchivePath )
 {
 	this->fp = NULL ;
 	this->HeadBuffer = NULL ;
@@ -1960,7 +1857,7 @@ DXArchive_VER5::DXArchive_VER5(TCHAR *ArchivePath )
 }
 
 // デストラクタ
-DXArchive_VER5::~DXArchive_VER5()
+DXArchive_VER6::~DXArchive_VER6()
 {
 	if( this->fp != NULL ) this->CloseArchiveFile() ;
 
@@ -1975,7 +1872,7 @@ DXArchive_VER5::~DXArchive_VER5()
 }
 
 // 指定のディレクトリデータの暗号化を解除する( 丸ごとメモリに読み込んだ場合用 )
-int DXArchive_VER5::DirectoryKeyConv( DARC_DIRECTORY_VER5 *Dir )
+int DXArchive_VER6::DirectoryKeyConv( DARC_DIRECTORY_VER6 *Dir )
 {
 	// メモリイメージではない場合はエラー
 	if( this->MemoryOpenFlag == false )
@@ -1988,18 +1885,18 @@ int DXArchive_VER5::DirectoryKeyConv( DARC_DIRECTORY_VER5 *Dir )
 	// 暗号化解除処理開始
 	{
 		u32 i, FileHeadSize ;
-		DARC_FILEHEAD_VER5 *File ;
+		DARC_FILEHEAD_VER6 *File ;
 
 		// 格納されているファイルの数だけ繰り返す
-		FileHeadSize = this->Head.Version >= 0x0002 ? sizeof( DARC_FILEHEAD_VER5 ) : sizeof( DARC_FILEHEAD_VER1 ) ;
-		File = ( DARC_FILEHEAD_VER5 * )( this->FileP + Dir->FileHeadAddress ) ;
-		for( i = 0 ; i < Dir->FileHeadNum ; i ++, File = (DARC_FILEHEAD_VER5 *)( (u8 *)File + FileHeadSize ) )
+		FileHeadSize = sizeof( DARC_FILEHEAD_VER6 ) ;
+		File = ( DARC_FILEHEAD_VER6 * )( this->FileP + Dir->FileHeadAddress ) ;
+		for( i = 0 ; i < Dir->FileHeadNum ; i ++, File = (DARC_FILEHEAD_VER6 *)( (u8 *)File + FileHeadSize ) )
 		{
 			// ディレクトリかどうかで処理を分岐
 			if( File->Attributes & FILE_ATTRIBUTE_DIRECTORY )
 			{
 				// ディレクトリの場合は再帰をかける
-				DirectoryKeyConv( ( DARC_DIRECTORY_VER5 * )( this->DirP + File->DataAddress ) ) ;
+				DirectoryKeyConv( ( DARC_DIRECTORY_VER6 * )( this->DirP + File->DataAddress ) ) ;
 			}
 			else
 			{
@@ -2014,7 +1911,7 @@ int DXArchive_VER5::DirectoryKeyConv( DARC_DIRECTORY_VER5 *Dir )
 					DataP = ( u8 * )this->fp + this->Head.DataStartAddress + File->DataAddress ;
 
 					// データが圧縮されているかどうかで処理を分岐
-					if( this->Head.Version >= 0x0002 && File->PressDataSize != 0xffffffff )
+					if( File->PressDataSize != 0xffffffffffffffff )
 					{
 						// 圧縮されている場合
 						KeyConv( DataP, File->PressDataSize, File->DataSize, this->Key ) ;
@@ -2034,7 +1931,7 @@ int DXArchive_VER5::DirectoryKeyConv( DARC_DIRECTORY_VER5 *Dir )
 }
 
 // メモリ上にあるアーカイブイメージを開く( 0:成功  -1:失敗 )
-int	DXArchive_VER5::OpenArchiveMem( void *ArchiveImage, int ArchiveSize, const char *KeyString )
+int	DXArchive_VER6::OpenArchiveMem( void *ArchiveImage, s64 ArchiveSize, const char *KeyString )
 {
 	u8 *datp ;
 
@@ -2045,28 +1942,12 @@ int	DXArchive_VER5::OpenArchiveMem( void *ArchiveImage, int ArchiveSize, const c
 	KeyCreate( KeyString, this->Key ) ;
 
 	// 最初にヘッダの部分を反転する
-	memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER5 ) ) ;
-	KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
+	memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER6 ) ) ;
+	KeyConv( &this->Head, sizeof( DARC_HEAD_VER6 ), 0, this->Key ) ;
 
-	// ＩＤが違う場合はバージョン２以前か調べる
-	if( Head.Head != DXA_HEAD_VER5 )
-	{
-		// バージョン２以前か調べる
-		memset( this->Key, 0xffffffff, DXA_KEYSTR_LENGTH_VER5 ) ;
-
-		memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER5 ) ) ;
-		KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
-
-		// バージョン２以前でもない場合はエラー
-		if( Head.Head != DXA_HEAD_VER5 )
-			return -1 ;
-	}
-
-	if( Head.Version < 0x0005 )
-	{
-		// すべてのデータを反転する
-		KeyConv( ArchiveImage, ArchiveSize, 0, this->Key ) ;
-	}
+	// ＩＤが違う場合はエラー
+	if( Head.Head != DXA_HEAD_VER6 )
+		goto ERR ;
 
 	// ポインタを保存
 	this->fp = (FILE *)ArchiveImage ;
@@ -2074,48 +1955,35 @@ int	DXArchive_VER5::OpenArchiveMem( void *ArchiveImage, int ArchiveSize, const c
 
 	// ヘッダを解析する
 	{
-		if( Head.Version >= 0x0005 )
-		{
-			memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER5 ) ) ;
-			KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
-		}
-		else
-		{
-			memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER5 ) ) ;
-		}
+		memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER6 ) ) ;
+		KeyConv( &this->Head, sizeof( DARC_HEAD_VER6 ), 0, this->Key ) ;
 
-		datp += sizeof( DARC_HEAD_VER5 ) ;
+		datp += sizeof( DARC_HEAD_VER6 ) ;
 
 		// ＩＤの検査
-		if( this->Head.Head != DXA_HEAD_VER5 ) goto ERR ;
+		if( this->Head.Head != DXA_HEAD_VER6 ) goto ERR ;
 		
 		// バージョン検査
-		if( this->Head.Version > DXA_VER_VER5 ) goto ERR ;
+		if( this->Head.Version > DXA_VER_VER6 || this->Head.Version < 0x0006 ) goto ERR ;
 
 		// ヘッダパックのアドレスをセットする
-		this->HeadBuffer = (TCHAR *)this->fp + this->Head.FileNameTableStartAddress ;
+		this->HeadBuffer = (u8 *)this->fp + this->Head.FileNameTableStartAddress ;
 
 		// 各アドレスをセットする
-		if( Head.Version >= 0x0005 )
-		{
-			KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
-		}
+		KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
 		this->NameP = this->HeadBuffer ;
 		this->FileP = this->NameP + this->Head.FileTableStartAddress ;
 		this->DirP = this->NameP + this->Head.DirectoryTableStartAddress ;
 	}
 
 	// カレントディレクトリのセット
-	this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )this->DirP ;
+	this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )this->DirP ;
 
 	// メモリイメージから開いているフラグを立てる
 	MemoryOpenFlag = true ;
 
 	// 全てのファイルの暗号化を解除する
-	if( this->Head.Version >= 0x0005 )
-	{
-		DirectoryKeyConv( ( DARC_DIRECTORY_VER5 * )this->DirP ) ;
-	}
+	DirectoryKeyConv( ( DARC_DIRECTORY_VER6 * )this->DirP ) ;
 
 	// ユーザーのイメージから開いたフラグを立てる
 	UserMemoryImageFlag = true ;
@@ -2127,23 +1995,17 @@ int	DXArchive_VER5::OpenArchiveMem( void *ArchiveImage, int ArchiveSize, const c
 	return 0 ;
 
 ERR :
-	if( Head.Version < 0x0005 )
-	{
-		// 反転したデータを元に戻す
-		KeyConv( ArchiveImage, ArchiveSize, 0, this->Key ) ;
-	}
-
 	// 終了
 	return -1 ;
 }
 
 // アーカイブファイルを開き最初にすべてメモリ上に読み込んでから処理する( 0:成功  -1:失敗 )
-int DXArchive_VER5::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *KeyString )
+int DXArchive_VER6::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *KeyString )
 {
 	FILE *fp ;
 	u8 *datp ;
 	void *ArchiveImage ;
-	int ArchiveSize ;
+	s64 ArchiveSize ;
 
 	// 既になんらかのアーカイブを開いていた場合はエラー
 	if( this->fp != NULL ) return -1 ;
@@ -2155,42 +2017,26 @@ int DXArchive_VER5::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *Ke
 	{
 		fp = _tfopen( ArchivePath, TEXT("rb") ) ;
 		if( fp == NULL ) return -1 ;
-		fseek( fp, 0L, SEEK_END ) ;
-		ArchiveSize = ftell( fp ) ;
-		fseek( fp, 0L, SEEK_SET ) ;
-		ArchiveImage = malloc( ArchiveSize ) ;
+		_fseeki64( fp, 0L, SEEK_END ) ;
+		ArchiveSize = _ftelli64( fp ) ;
+		_fseeki64( fp, 0L, SEEK_SET ) ;
+		ArchiveImage = malloc( ( size_t )ArchiveSize ) ;
 		if( ArchiveImage == NULL )
 		{
 			fclose( fp ) ;
 			return -1 ;
 		}
-		fread( ArchiveImage, ArchiveSize, 1, fp ) ;
+		fread64( ArchiveImage, ArchiveSize, fp ) ;
 		fclose( fp ) ;
 	}
 
 	// 最初にヘッダの部分を反転する
-	memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER5 ) ) ;
-	KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
+	memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER6 ) ) ;
+	KeyConv( &this->Head, sizeof( DARC_HEAD_VER6 ), 0, this->Key ) ;
 
-	// ＩＤが違う場合はバージョン２以前か調べる
-	if( Head.Head != DXA_HEAD_VER5 )
-	{
-		// バージョン２以前か調べる
-		memset( this->Key, 0xffffffff, DXA_KEYSTR_LENGTH_VER5 ) ;
-
-		memcpy( &this->Head, ArchiveImage, sizeof( DARC_HEAD_VER5 ) ) ;
-		KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
-
-		// バージョン２以前でもない場合はエラー
-		if( Head.Head != DXA_HEAD_VER5 )
-			return -1 ;
-	}
-
-	// すべてのデータを反転する
-	if( Head.Version < 0x0005 )
-	{
-		KeyConv( ArchiveImage, ArchiveSize, 0, this->Key ) ;
-	}
+	// ＩＤが違う場合はエラー
+	if( Head.Head != DXA_HEAD_VER6 )
+		return -1 ;
 
 	// ポインタを保存
 	this->fp = (FILE *)ArchiveImage ;
@@ -2198,48 +2044,35 @@ int DXArchive_VER5::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *Ke
 
 	// ヘッダを解析する
 	{
-		if( Head.Version >= 0x0005 )
-		{
-			memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER5 ) ) ;
-			KeyConv( &this->Head, sizeof( DARC_HEAD_VER5 ), 0, this->Key ) ;
-		}
-		else
-		{
-			memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER5 ) ) ;
-		}
+		memcpy( &this->Head, datp, sizeof( DARC_HEAD_VER6 ) ) ;
+		KeyConv( &this->Head, sizeof( DARC_HEAD_VER6 ), 0, this->Key ) ;
 
-		datp += sizeof( DARC_HEAD_VER5 ) ;
+		datp += sizeof( DARC_HEAD_VER6 ) ;
 		
 		// ＩＤの検査
-		if( this->Head.Head != DXA_HEAD_VER5 ) goto ERR ;
+		if( this->Head.Head != DXA_HEAD_VER6 ) goto ERR ;
 		
 		// バージョン検査
-		if( this->Head.Version > DXA_VER_VER5 ) goto ERR ;
+		if( this->Head.Version > DXA_VER_VER6 || this->Head.Version < 0x0006 ) goto ERR ;
 
 		// ヘッダパックのアドレスをセットする
-		this->HeadBuffer = (TCHAR *)this->fp + this->Head.FileNameTableStartAddress ;
+		this->HeadBuffer = (u8 *)this->fp + this->Head.FileNameTableStartAddress ;
 
 		// 各アドレスをセットする
-		if( Head.Version >= 0x0005 )
-		{
-			KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
-		}
+		KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
 		this->NameP = this->HeadBuffer ;
 		this->FileP = this->NameP + this->Head.FileTableStartAddress ;
 		this->DirP = this->NameP + this->Head.DirectoryTableStartAddress ;
 	}
 
 	// カレントディレクトリのセット
-	this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )this->DirP ;
+	this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )this->DirP ;
 
 	// メモリイメージから開いているフラグを立てる
 	MemoryOpenFlag = true ;
 
 	// 全てのファイルの暗号化を解除する
-	if( this->Head.Version >= 0x0005 )
-	{
-		DirectoryKeyConv( ( DARC_DIRECTORY_VER5 * )this->DirP ) ;
-	}
+	DirectoryKeyConv( ( DARC_DIRECTORY_VER6 * )this->DirP ) ;
 	
 	// ユーザーのイメージから開いたわけではないのでフラグを倒す
 	UserMemoryImageFlag = false ;
@@ -2251,18 +2084,13 @@ int DXArchive_VER5::OpenArchiveFileMem( const TCHAR *ArchivePath, const char *Ke
 	return 0 ;
 
 ERR :
-	if( Head.Version < 0x0005 )
-	{
-		// 反転したデータを元に戻す
-		KeyConv( ArchiveImage, ArchiveSize, 0, this->Key ) ;
-	}
 	
 	// 終了
 	return -1 ;
 }
 
 // アーカイブファイルを開く
-int DXArchive_VER5::OpenArchiveFile( const TCHAR *ArchivePath, const char *KeyString )
+int DXArchive_VER6::OpenArchiveFile( const TCHAR *ArchivePath, const char *KeyString )
 {
 	// 既になんらかのアーカイブを開いていた場合はエラー
 	if( this->fp != NULL ) return -1 ;
@@ -2276,39 +2104,22 @@ int DXArchive_VER5::OpenArchiveFile( const TCHAR *ArchivePath, const char *KeySt
 
 	// ヘッダを解析する
 	{
-		KeyConvFileRead( &this->Head, sizeof( DARC_HEAD_VER5 ), this->fp, this->Key, 0 ) ;
+		KeyConvFileRead( &this->Head, sizeof( DARC_HEAD_VER6 ), this->fp, this->Key, 0 ) ;
 		
 		// ＩＤの検査
-		if( this->Head.Head != DXA_HEAD_VER5 )
-		{
-			// バージョン２以前か調べる
-			memset( this->Key, 0xffffffff, DXA_KEYSTR_LENGTH_VER5 ) ;
-
-			fseek( this->fp, 0L, SEEK_SET ) ;
-			KeyConvFileRead( &Head, sizeof( DARC_HEAD_VER5 ), this->fp, this->Key, 0 ) ;
-
-			// バージョン２以前でもない場合はエラー
-			if( Head.Head != DXA_HEAD_VER5 )
-				goto ERR ;
-		}
+		if( this->Head.Head != DXA_HEAD_VER6 )
+			goto ERR ;
 		
 		// バージョン検査
-		if( this->Head.Version > DXA_VER_VER5 ) goto ERR ;
+		if( this->Head.Version > DXA_VER_VER6 || this->Head.Version < 0x0006 ) goto ERR ;
 		
 		// ヘッダのサイズ分のメモリを確保する
-		this->HeadBuffer = (TCHAR * )calloc( this->Head.HeadSize, sizeof(TCHAR) ) ;
+		this->HeadBuffer = (u8 * )malloc( ( size_t )this->Head.HeadSize ) ;
 		if( this->HeadBuffer == NULL ) goto ERR ;
 		
 		// ヘッダパックをメモリに読み込む
-		fseek( this->fp, this->Head.FileNameTableStartAddress, SEEK_SET ) ;
-		if( this->Head.Version >= 0x0005 )
-		{
-			KeyConvFileRead( this->HeadBuffer, this->Head.HeadSize, this->fp, this->Key, 0 ) ;
-		}
-		else
-		{
-			KeyConvFileRead( this->HeadBuffer, this->Head.HeadSize, this->fp, this->Key ) ;
-		}
+		_fseeki64( this->fp, this->Head.FileNameTableStartAddress, SEEK_SET ) ;
+		KeyConvFileRead( this->HeadBuffer, this->Head.HeadSize, this->fp, this->Key, 0 ) ;
 		
 		// 各アドレスをセットする
 		this->NameP = this->HeadBuffer ;
@@ -2317,7 +2128,7 @@ int DXArchive_VER5::OpenArchiveFile( const TCHAR *ArchivePath, const char *KeySt
 	}
 
 	// カレントディレクトリのセット
-	this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )this->DirP ;
+	this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )this->DirP ;
 
 	// メモリイメージから開いている、フラグを倒す
 	MemoryOpenFlag = false ;
@@ -2334,7 +2145,7 @@ ERR :
 }
 
 // アーカイブファイルを閉じる
-int DXArchive_VER5::CloseArchiveFile( void )
+int DXArchive_VER6::CloseArchiveFile( void )
 {
 	// 既に閉じていたら何もせず終了
 	if( this->fp == NULL ) return 0 ;
@@ -2346,15 +2157,8 @@ int DXArchive_VER5::CloseArchiveFile( void )
 		if( UserMemoryImageFlag == true )
 		{
 			// 反転したデータを元に戻す
-			if( this->Head.Version >= 0x0005 )
-			{
-				DirectoryKeyConv( ( DARC_DIRECTORY_VER5 * )this->DirP ) ;
-				KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
-			}
-			else
-			{
-				KeyConv( this->fp, this->MemoryImageSize, 0, this->Key ) ;
-			}
+			DirectoryKeyConv( ( DARC_DIRECTORY_VER6 * )this->DirP ) ;
+			KeyConv( this->HeadBuffer, this->Head.HeadSize, 0, this->Key ) ;
 		}
 		else
 		{
@@ -2382,11 +2186,11 @@ int DXArchive_VER5::CloseArchiveFile( void )
 }
 
 // アーカイブ内のディレクトリパスを変更する( 0:成功  -1:失敗 )
-int	DXArchive_VER5::ChangeCurrentDirectoryFast( SEARCHDATA *SearchData )
+int	DXArchive_VER6::ChangeCurrentDirectoryFast( SEARCHDATA *SearchData )
 {
-	DARC_FILEHEAD_VER5 *FileH ;
+	DARC_FILEHEAD_VER6 *FileH ;
 	int i, j, k, Num ;
-	TCHAR *NameData, *PathData ;
+	u8 *NameData, *PathData ;
 	u16 PackNum, Parity ;
 
 	PackNum  = SearchData->PackNum ;
@@ -2394,7 +2198,7 @@ int	DXArchive_VER5::ChangeCurrentDirectoryFast( SEARCHDATA *SearchData )
 	PathData = SearchData->FileName ;
 
 	// カレントディレクトリから同名のディレクトリを探す
-	FileH = ( DARC_FILEHEAD_VER5 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
+	FileH = ( DARC_FILEHEAD_VER6 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
 	Num = (s32)this->CurrentDirectory->FileHeadNum ;
 	for( i = 0 ; i < Num ; i ++, FileH ++ )
 	{
@@ -2418,22 +2222,22 @@ int	DXArchive_VER5::ChangeCurrentDirectoryFast( SEARCHDATA *SearchData )
 	if( i == Num ) return -1 ;
 
 	// 在ったらカレントディレクトリを変更
-	this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )( this->DirP + FileH->DataAddress ) ;
+	this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )( this->DirP + FileH->DataAddress ) ;
 
 	// 正常終了
 	return 0 ;
 }
 
 // アーカイブ内のディレクトリパスを変更する( 0:成功  -1:失敗 )
-int DXArchive_VER5::ChangeCurrentDir( const TCHAR *DirPath )
+int DXArchive_VER6::ChangeCurrentDir( const TCHAR *DirPath )
 {
 	return ChangeCurrentDirectoryBase( DirPath, true ) ;
 }
 
 // アーカイブ内のディレクトリパスを変更する( 0:成功  -1:失敗 )
-int	DXArchive_VER5::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool ErrorIsDirectoryReset, SEARCHDATA *LastSearchData )
+int	DXArchive_VER6::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool ErrorIsDirectoryReset, SEARCHDATA *LastSearchData )
 {
-	DARC_DIRECTORY_VER5 *OldDir ;
+	DARC_DIRECTORY_VER6 *OldDir ;
 	SEARCHDATA SearchData ;
 
 	// ここに留まるパスだったら無視
@@ -2442,7 +2246,7 @@ int	DXArchive_VER5::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool
 	// 『\』だけの場合はルートディレクトリに戻る
 	if( _tcscmp( DirectoryPath, TEXT("\\") ) == 0 )
 	{
-		this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )this->DirP ;
+		this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )this->DirP ;
 		return 0 ;
 	}
 
@@ -2450,10 +2254,10 @@ int	DXArchive_VER5::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool
 	if( _tcscmp( DirectoryPath, TEXT("..") ) == 0 )
 	{
 		// ルートディレクトリに居たらエラー
-		if( this->CurrentDirectory->ParentDirectoryAddress == 0xffffffff ) return -1 ;
+		if( this->CurrentDirectory->ParentDirectoryAddress == 0xffffffffffffffff ) return -1 ;
 		
 		// 親ディレクトリがあったらそちらに移る
-		this->CurrentDirectory = ( DARC_DIRECTORY_VER5 * )( this->DirP + this->CurrentDirectory->ParentDirectoryAddress ) ;
+		this->CurrentDirectory = ( DARC_DIRECTORY_VER6 * )( this->DirP + this->CurrentDirectory->ParentDirectoryAddress ) ;
 		return 0 ;
 	}
 
@@ -2472,7 +2276,7 @@ int	DXArchive_VER5::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool
 		if( ChangeCurrentDirectoryFast( &SearchData ) < 0 ) goto ERR ;
 
 /*		// \ が無い場合は、同名のディレクトリを探す
-		FileH = ( DARC_FILEHEAD_VER5 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
+		FileH = ( DARC_FILEHEAD_VER6 * )( this->FileP + this->CurrentDirectory->FileHeadAddress ) ;
 		for( i = 0 ;
 			 i < (s32)this->CurrentDirectory->FileHeadNum &&
 			 StrICmp( ( char * )( this->NameP + FileH->NameAddress ), DirectoryPath ) != 0 ;
@@ -2513,7 +2317,7 @@ int	DXArchive_VER5::ChangeCurrentDirectoryBase( const TCHAR *DirectoryPath, bool
 			// もし初っ端が \ だった場合はルートディレクトリに落とす
 			if( StrLength == 0 && DirectoryPath[Point] == '\\' )
 			{
-				this->ChangeCurrentDirectoryBase( TEXT("\\"), false ) ;
+				this->ChangeCurrentDirectoryBase(TEXT("\\"), false ) ;
 			}
 			else
 			{
@@ -2560,19 +2364,19 @@ ERR:
 }
 		
 // アーカイブ内のカレントディレクトリパスを取得する
-int DXArchive_VER5::GetCurrentDir(TCHAR *DirPathBuffer, int BufferLength )
+int DXArchive_VER6::GetCurrentDir(TCHAR *DirPathBuffer, int BufferLength )
 {
 	TCHAR DirPath[MAX_PATH] ;
-	DARC_DIRECTORY_VER5 *Dir[200], *DirTempP ;
+	DARC_DIRECTORY_VER6 *Dir[200], *DirTempP ;
 	int Depth, i ;
 
 	// ルートディレクトリに着くまで検索する
 	Depth = 0 ;
 	DirTempP = this->CurrentDirectory ;
-	while( DirTempP->DirectoryAddress != 0xffffffff && DirTempP->DirectoryAddress != 0 )
+	while( DirTempP->DirectoryAddress != 0xffffffffffffffff && DirTempP->DirectoryAddress != 0 )
 	{
 		Dir[Depth] = DirTempP ;
-		DirTempP = ( DARC_DIRECTORY_VER5 * )( this->DirP + DirTempP->ParentDirectoryAddress ) ;
+		DirTempP = ( DARC_DIRECTORY_VER6 * )( this->DirP + DirTempP->ParentDirectoryAddress ) ;
 		Depth ++ ;
 	}
 	
@@ -2581,13 +2385,13 @@ int DXArchive_VER5::GetCurrentDir(TCHAR *DirPathBuffer, int BufferLength )
 	for( i = Depth - 1 ; i >= 0 ; i -- )
 	{
 		_tcscat( DirPath, TEXT("\\") ) ;
-		_tcscat( DirPath, ( TCHAR * )( this->NameP + ( ( DARC_FILEHEAD_VER5 * )( this->FileP + Dir[i]->DirectoryAddress ) )->NameAddress ) ) ;
+		_tcscat( DirPath, (TCHAR * )( this->NameP + ( ( DARC_FILEHEAD_VER6 * )( this->FileP + Dir[i]->DirectoryAddress ) )->NameAddress ) ) ;
 	}
 
 	// バッファの長さが０か、長さが足りないときはディレクトリ名の長さを返す
 	if( BufferLength == 0 || BufferLength < (s32)_tcslen( DirPath ) )
 	{
-		return (int)(_tcslen(DirPath) + 1);
+		return ( int )( _tcslen( DirPath ) + 1 ) ;
 	}
 	else
 	{
@@ -2602,9 +2406,9 @@ int DXArchive_VER5::GetCurrentDir(TCHAR *DirPathBuffer, int BufferLength )
 
 
 // アーカイブファイル中の指定のファイルをメモリに読み込む
-int DXArchive_VER5::LoadFileToMem( const TCHAR *FilePath, void *Buffer, unsigned int BufferLength )
+s64 DXArchive_VER6::LoadFileToMem( const TCHAR *FilePath, void *Buffer, u64 BufferLength )
 {
-	DARC_FILEHEAD_VER5 *FileH ;
+	DARC_FILEHEAD_VER6 *FileH ;
 
 	// 指定のファイルの情報を得る
 	FileH = this->GetFileInfo( FilePath ) ;
@@ -2613,13 +2417,13 @@ int DXArchive_VER5::LoadFileToMem( const TCHAR *FilePath, void *Buffer, unsigned
 	// ファイルサイズが足りているか調べる、足りていないか、バッファ、又はサイズが０だったらサイズを返す
 	if( BufferLength < FileH->DataSize || BufferLength == 0 || Buffer == NULL )
 	{
-		return ( int )FileH->DataSize ;
+		return ( s64 )FileH->DataSize ;
 	}
 
 	// 足りている場合はバッファーに読み込む
 
 	// ファイルが圧縮されているかどうかで処理を分岐
-	if( this->Head.Version >= 0x0002 && FileH->PressDataSize != 0xffffffff )
+	if( FileH->PressDataSize != 0xffffffffffffffff )
 	{
 		// 圧縮されている場合
 
@@ -2636,18 +2440,11 @@ int DXArchive_VER5::LoadFileToMem( const TCHAR *FilePath, void *Buffer, unsigned
 			// 圧縮データをメモリに読み込んでから解凍する
 
 			// 圧縮データが収まるメモリ領域の確保
-			temp = malloc( FileH->PressDataSize ) ;
+			temp = malloc( ( size_t )FileH->PressDataSize ) ;
 
 			// 圧縮データの読み込み
-			fseek( this->fp, this->Head.DataStartAddress + FileH->DataAddress, SEEK_SET ) ;
-			if( this->Head.Version >= 0x0005 )
-			{
-				KeyConvFileRead( temp, FileH->PressDataSize, this->fp, this->Key, FileH->DataSize ) ;
-			}
-			else
-			{
-				KeyConvFileRead( temp, FileH->PressDataSize, this->fp, this->Key ) ;
-			}
+			_fseeki64( this->fp, this->Head.DataStartAddress + FileH->DataAddress, SEEK_SET ) ;
+			KeyConvFileRead( temp, FileH->PressDataSize, this->fp, this->Key, FileH->DataSize ) ;
 			
 			// 解凍
 			Decode( temp, Buffer ) ;
@@ -2664,22 +2461,15 @@ int DXArchive_VER5::LoadFileToMem( const TCHAR *FilePath, void *Buffer, unsigned
 		if( MemoryOpenFlag == true )
 		{
 			// コピー
-			memcpy( Buffer, (u8 *)this->fp + this->Head.DataStartAddress + FileH->DataAddress, FileH->DataSize ) ;
+			memcpy( Buffer, (u8 *)this->fp + this->Head.DataStartAddress + FileH->DataAddress, ( size_t )FileH->DataSize ) ;
 		}
 		else
 		{
 			// ファイルポインタを移動
-			fseek( this->fp, this->Head.DataStartAddress + FileH->DataAddress, SEEK_SET ) ;
+			_fseeki64( this->fp, this->Head.DataStartAddress + FileH->DataAddress, SEEK_SET ) ;
 
 			// 読み込み
-			if( this->Head.Version >= 0x0005 )
-			{
-				KeyConvFileRead( Buffer, FileH->DataSize, this->fp, this->Key, FileH->DataSize ) ;
-			}
-			else
-			{
-				KeyConvFileRead( Buffer, FileH->DataSize, this->fp, this->Key ) ;
-			}
+			KeyConvFileRead( Buffer, FileH->DataSize, this->fp, this->Key, FileH->DataSize ) ;
 		}
 	}
 	
@@ -2688,14 +2478,14 @@ int DXArchive_VER5::LoadFileToMem( const TCHAR *FilePath, void *Buffer, unsigned
 }
 
 // アーカイブファイル中の指定のファイルをサイズを取得する
-int DXArchive_VER5::GetFileSize( const TCHAR *FilePath )
+s64 DXArchive_VER6::GetFileSize( const TCHAR *FilePath )
 {
 	// ファイルサイズを返す
 	return this->LoadFileToMem( FilePath, NULL, 0 ) ;
 }
 
 // アーカイブファイルをメモリに読み込んだ場合のファイルイメージが格納されている先頭アドレスを取得する( メモリから開いている場合のみ有効 )
-void *DXArchive_VER5::GetFileImage( void )
+void *DXArchive_VER6::GetFileImage( void )
 {
 	// メモリイメージから開いていなかったらエラー
 	if( MemoryOpenFlag == false ) return NULL ;
@@ -2705,9 +2495,9 @@ void *DXArchive_VER5::GetFileImage( void )
 }
 
 // アーカイブファイル中の指定のファイルのファイル内の位置とファイルの大きさを得る( -1:エラー )
-int DXArchive_VER5::GetFileInfo( const TCHAR *FilePath, int *PositionP, int *SizeP )
+int DXArchive_VER6::GetFileInfo( const TCHAR *FilePath, u64 *PositionP, u64 *SizeP )
 {
-	DARC_FILEHEAD_VER5 *FileH ;
+	DARC_FILEHEAD_VER6 *FileH ;
 
 	// 指定のファイルの情報を得る
 	FileH = this->GetFileInfo( FilePath ) ;
@@ -2722,9 +2512,9 @@ int DXArchive_VER5::GetFileInfo( const TCHAR *FilePath, int *PositionP, int *Siz
 }
 
 // アーカイブファイル中の指定のファイルを、クラス内のバッファに読み込む
-void *DXArchive_VER5::LoadFileToCash( const TCHAR *FilePath )
+void *DXArchive_VER6::LoadFileToCash( const TCHAR *FilePath )
 {
-	int FileSize ;
+	s64 FileSize ;
 
 	// ファイルサイズを取得する
 	FileSize = this->GetFileSize( FilePath ) ;
@@ -2733,13 +2523,13 @@ void *DXArchive_VER5::LoadFileToCash( const TCHAR *FilePath )
 	if( FileSize < 0 ) return NULL ;
 
 	// 確保しているキャッシュバッファのサイズよりも大きい場合はバッファを再確保する
-	if( FileSize > ( int )this->CashBufferSize )
+	if( FileSize > ( s64 )this->CashBufferSize )
 	{
 		// キャッシュバッファのクリア
 		this->ClearCash() ;
 
 		// キャッシュバッファの再確保
-		this->CashBuffer = malloc( FileSize ) ;
+		this->CashBuffer = malloc( ( size_t )FileSize ) ;
 
 		// 確保に失敗した場合は NULL を返す
 		if( this->CashBuffer == NULL ) return NULL ;
@@ -2756,7 +2546,7 @@ void *DXArchive_VER5::LoadFileToCash( const TCHAR *FilePath )
 }
 
 // キャッシュバッファを開放する
-int DXArchive_VER5::ClearCash( void )
+int DXArchive_VER6::ClearCash( void )
 {
 	// メモリが確保されていたら解放する
 	if( this->CashBuffer != NULL )
@@ -2772,10 +2562,10 @@ int DXArchive_VER5::ClearCash( void )
 
 	
 // アーカイブファイル中の指定のファイルを開き、ファイルアクセス用オブジェクトを作成する
-DXArchiveFile_VER5 *DXArchive_VER5::OpenFile( const TCHAR *FilePath )
+DXArchiveFile_VER6*DXArchive_VER6::OpenFile( const TCHAR *FilePath )
 {
-	DARC_FILEHEAD_VER5 *FileH ;
-	DXArchiveFile_VER5 *CDArc = NULL ;
+	DARC_FILEHEAD_VER6 *FileH ;
+	DXArchiveFile_VER6*CDArc = NULL ;
 
 	// メモリから開いている場合は無効
 	if( MemoryOpenFlag == true ) return NULL ;
@@ -2784,10 +2574,10 @@ DXArchiveFile_VER5 *DXArchive_VER5::OpenFile( const TCHAR *FilePath )
 	FileH = this->GetFileInfo( FilePath ) ;
 	if( FileH == NULL ) return NULL ;
 
-	// 新しく DXArchiveFile_VER5 クラスを作成する
-	CDArc = new DXArchiveFile_VER5( FileH, this ) ;
+	// 新しく DXArchiveFile クラスを作成する
+	CDArc = new DXArchiveFile_VER6( FileH, this ) ;
 	
-	// DXArchiveFile_VER5 クラスのポインタを返す
+	// DXArchiveFile_VER6 クラスのポインタを返す
 	return CDArc ;
 }
 
@@ -2804,7 +2594,7 @@ DXArchiveFile_VER5 *DXArchive_VER5::OpenFile( const TCHAR *FilePath )
 
 
 // コンストラクタ
-DXArchiveFile_VER5::DXArchiveFile_VER5( DARC_FILEHEAD_VER5 *FileHead, DXArchive_VER5 *Archive )
+DXArchiveFile_VER6::DXArchiveFile_VER6( DARC_FILEHEAD_VER6 *FileHead, DXArchive_VER6*Archive )
 {
 	this->FileData  = FileHead ;
 	this->Archive   = Archive ;
@@ -2813,29 +2603,22 @@ DXArchiveFile_VER5::DXArchiveFile_VER5( DARC_FILEHEAD_VER5 *FileHead, DXArchive_
 	this->DataBuffer = NULL ;
 	
 	// ファイルが圧縮されている場合はここで読み込んで解凍してしまう
-	if( this->Archive->GetHeader()->Version >= 0x0002 && FileHead->PressDataSize != 0xffffffff )
+	if( FileHead->PressDataSize != 0xffffffffffffffff )
 	{
 		void *temp ;
 
 		// 圧縮データが収まるメモリ領域の確保
-		temp = malloc( FileHead->PressDataSize ) ;
+		temp = malloc( ( size_t )FileHead->PressDataSize ) ;
 
 		// 解凍データが収まるメモリ領域の確保
-		this->DataBuffer = malloc( FileHead->DataSize ) ;
+		this->DataBuffer = malloc( ( size_t )FileHead->DataSize ) ;
 
 		// 圧縮データの読み込み
-		fseek( this->Archive->GetFilePointer(), this->Archive->GetHeader()->DataStartAddress + FileHead->DataAddress, SEEK_SET ) ;
-		if( this->Archive->GetHeader()->Version >= 0x0005 )
-		{
-			DXArchive_VER5::KeyConvFileRead( temp, FileHead->PressDataSize, this->Archive->GetFilePointer(), this->Archive->GetKey(), FileHead->DataSize ) ;
-		}
-		else
-		{
-			DXArchive_VER5::KeyConvFileRead( temp, FileHead->PressDataSize, this->Archive->GetFilePointer(), this->Archive->GetKey() ) ;
-		}
+		_fseeki64( this->Archive->GetFilePointer(), this->Archive->GetHeader()->DataStartAddress + FileHead->DataAddress, SEEK_SET ) ;
+		DXArchive_VER6::KeyConvFileRead( temp, FileHead->PressDataSize, this->Archive->GetFilePointer(), this->Archive->GetKey(), FileHead->DataSize ) ;
 		
 		// 解凍
-		DXArchive_VER5::Decode( temp, this->DataBuffer ) ;
+		DXArchive_VER6::Decode( temp, this->DataBuffer ) ;
 		
 		// メモリの解放
 		free( temp ) ;
@@ -2843,7 +2626,7 @@ DXArchiveFile_VER5::DXArchiveFile_VER5( DARC_FILEHEAD_VER5 *FileHead, DXArchive_
 }
 
 // デストラクタ
-DXArchiveFile_VER5::~DXArchiveFile_VER5()
+DXArchiveFile_VER6::~DXArchiveFile_VER6()
 {
 	// メモリの解放
 	if( this->DataBuffer != NULL )
@@ -2854,18 +2637,18 @@ DXArchiveFile_VER5::~DXArchiveFile_VER5()
 }
 
 // ファイルの内容を読み込む
-int DXArchiveFile_VER5::Read( void *Buffer, int ReadLength )
+s64 DXArchiveFile_VER6::Read( void *Buffer, s64 ReadLength )
 {
-	int ReadSize ;
+	s64 ReadSize ;
 
 	// EOF フラグが立っていたら０を返す
 	if( this->EOFFlag == TRUE ) return 0 ;
 	
 	// アーカイブファイルポインタと、仮想ファイルポインタが一致しているか調べる
 	// 一致していなかったらアーカイブファイルポインタを移動する
-	if( this->DataBuffer == NULL && ftell( this->Archive->GetFilePointer() ) != (s32)( this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint ) )
+	if( this->DataBuffer == NULL && _ftelli64( this->Archive->GetFilePointer() ) != (s32)( this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint ) )
 	{
-		fseek( this->Archive->GetFilePointer(), this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint, SEEK_SET ) ;
+		_fseeki64( this->Archive->GetFilePointer(), this->FileData->DataAddress + this->Archive->GetHeader()->DataStartAddress + this->FilePoint, SEEK_SET ) ;
 	}
 	
 	// EOF 検出
@@ -2876,23 +2659,16 @@ int DXArchiveFile_VER5::Read( void *Buffer, int ReadLength )
 	}
 	
 	// データを読み込む量を設定する
-	ReadSize = ReadLength < (s32)( this->FileData->DataSize - this->FilePoint ) ? ReadLength : this->FileData->DataSize - this->FilePoint ;
+	ReadSize = ReadLength < (s64)( this->FileData->DataSize - this->FilePoint ) ? ReadLength : this->FileData->DataSize - this->FilePoint ;
 	
 	// データを読み込む
 	if( this->DataBuffer == NULL )
 	{
-		if( this->Archive->GetHeader()->Version >= 0x0005 )
-		{
-			DXArchive_VER5::KeyConvFileRead( Buffer, ReadSize, this->Archive->GetFilePointer(), this->Archive->GetKey(), this->FileData->DataSize + this->FilePoint ) ;
-		}
-		else
-		{
-			DXArchive_VER5::KeyConvFileRead( Buffer, ReadSize, this->Archive->GetFilePointer(), this->Archive->GetKey() ) ;
-		}
+		DXArchive_VER6::KeyConvFileRead( Buffer, ReadSize, this->Archive->GetFilePointer(), this->Archive->GetKey(), this->FileData->DataSize + this->FilePoint ) ;
 	}
 	else
 	{
-		memcpy( Buffer, (u8 *)this->DataBuffer + this->FilePoint, ReadSize ) ;
+		memcpy( Buffer, (u8 *)this->DataBuffer + this->FilePoint, ( size_t )ReadSize ) ;
 	}
 	
 	// EOF フラグを倒す
@@ -2906,7 +2682,7 @@ int DXArchiveFile_VER5::Read( void *Buffer, int ReadLength )
 }
 	
 // ファイルポインタを変更する
-int DXArchiveFile_VER5::Seek( int SeekPoint, int SeekMode )
+s64 DXArchiveFile_VER6::Seek( s64 SeekPoint, s64 SeekMode )
 {
 	// シークタイプによって処理を分岐
 	switch( SeekMode )
@@ -2917,7 +2693,7 @@ int DXArchiveFile_VER5::Seek( int SeekPoint, int SeekMode )
 	}
 	
 	// 補正
-	if( SeekPoint > (s32)this->FileData->DataSize ) SeekPoint = this->FileData->DataSize ;
+	if( SeekPoint > (s64)this->FileData->DataSize ) SeekPoint = this->FileData->DataSize ;
 	if( SeekPoint < 0 ) SeekPoint = 0 ;
 	
 	// セット
@@ -2931,19 +2707,19 @@ int DXArchiveFile_VER5::Seek( int SeekPoint, int SeekMode )
 }
 
 // 現在のファイルポインタを得る
-int DXArchiveFile_VER5::Tell( void )
+s64 DXArchiveFile_VER6::Tell( void )
 {
 	return this->FilePoint ;
 }
 
 // ファイルの終端に来ているか、のフラグを得る
-int DXArchiveFile_VER5::Eof( void )
+s64 DXArchiveFile_VER6::Eof( void )
 {
 	return this->EOFFlag ;
 }
 
 // ファイルのサイズを取得する
-int DXArchiveFile_VER5::Size( void )
+s64 DXArchiveFile_VER6::Size( void )
 {
 	return this->FileData->DataSize ;
 }
@@ -2952,7 +2728,7 @@ int DXArchiveFile_VER5::Size( void )
 
 
 
-WCHAR sjis2utf8_(const char* sjis)
+WCHAR sjis2utf8_VER6(const char* sjis)
 {
 	LPCCH pSJIS = (LPCCH)sjis;
 
@@ -2963,4 +2739,3 @@ WCHAR sjis2utf8_(const char* sjis)
 	delete[] pUTF8;
 	return utf8;
 }
-

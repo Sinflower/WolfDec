@@ -11,6 +11,18 @@
     <ClCompile Include="3rdParty\FileLib.cpp">
       <Filter>3rdParty</Filter>
     </ClCompile>
+    <ClCompile Include="3rdParty\CharCode.cpp">
+      <Filter>3rdParty</Filter>
+    </ClCompile>
+    <ClCompile Include="3rdParty\CharCodeTable.cpp">
+      <Filter>3rdParty</Filter>
+    </ClCompile>
+    <ClCompile Include="3rdParty\Huffman.cpp">
+      <Filter>3rdParty</Filter>
+    </ClCompile>
+    <ClCompile Include="3rdParty\DXArchiveVer6.cpp">
+      <Filter>3rdParty</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="3rdParty\DataType.h">
@@ -23,6 +35,17 @@
       <Filter>3rdParty</Filter>
     </ClInclude>
     <ClInclude Include="3rdParty\FileLib.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="DXA_V8.h" />
+    <ClInclude Include="DXA_Utils.h" />
+    <ClInclude Include="3rdParty\CharCode.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="3rdParty\Huffman.h">
+      <Filter>3rdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="3rdParty\DXArchiveVer6.h">
       <Filter>3rdParty</Filter>
     </ClInclude>
   </ItemGroup>

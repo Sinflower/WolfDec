@@ -8,8 +8,8 @@
 //
 // ============================================================================
 
-#ifndef __DATA_TYPE
-#define __DATA_TYPE
+#ifndef DATA_TYPE_H
+#define DATA_TYPE_H
 
 #ifndef u64
 #define u64		unsigned __int64
