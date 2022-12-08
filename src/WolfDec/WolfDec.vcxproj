@@ -176,8 +176,6 @@
     <ClInclude Include="3rdParty\DXArchiveVer6.h" />
     <ClInclude Include="3rdParty\FileLib.h" />
     <ClInclude Include="3rdParty\Huffman.h" />
-    <ClInclude Include="DXA_V8.h" />
-    <ClInclude Include="DXA_Utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -37,8 +37,6 @@
     <ClInclude Include="3rdParty\FileLib.h">
       <Filter>3rdParty</Filter>
     </ClInclude>
-    <ClInclude Include="DXA_V8.h" />
-    <ClInclude Include="DXA_Utils.h" />
     <ClInclude Include="3rdParty\CharCode.h">
       <Filter>3rdParty</Filter>
     </ClInclude>
