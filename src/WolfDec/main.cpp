@@ -2,12 +2,14 @@
 #include <DXArchiveVer5.h>
 #include <DXArchiveVer6.h>
 #include <FileLib.h>
+
 #include <windows.h>
 #include <iostream>
 #include <string>
+#include <vector>
 
 ////////////////////////
-// WolfDec Version 0.3.1
+// WolfDec Version 0.3.2
 ////////////////////////
 
 std::basic_ostream <TCHAR>& tcout =
@@ -17,17 +19,47 @@ std::wcout;
 std::cout;
 #endif // _UNICODE
 
-static const unsigned char KEY_2_01[] = { 0x0f, 0x53, 0xe1, 0x3e, 0x04, 0x37, 0x12, 0x17, 0x60, 0x0f, 0x53, 0xe1 };
-static const unsigned char KEY_2_10[] = { 0x4c, 0xd9, 0x2a, 0xb7, 0x28, 0x9b, 0xac, 0x07, 0x3e, 0x77, 0xec, 0x4c };
-static const unsigned char KEY_2_20[] = { 0x38, 0x50, 0x40, 0x28, 0x72, 0x4f, 0x21, 0x70, 0x3b, 0x73, 0x35, 0x38 };
+using DecryptFunction = int (*)(TCHAR*, const TCHAR*, const char*);
 
-static const char KEY_2_281[] = "WLFRPrO!p(;s5((8P@((UFWlu$#5(=";
-static const unsigned char KEY_3_10[] = { 0x0F, 0x53, 0xE1, 0x3E, 0x8E, 0xB5, 0x41, 0x91, 0x52, 0x16, 0x55, 0xAE, 0x34, 0xC9, 0x8F, 0x79, 0x59, 0x2F, 0x59, 0x6B, 0x95, 0x19, 0x9B, 0x1B, 0x35, 0x9A, 0x2F, 0xDE, 0xC9, 0x7C, 0x12, 0x96, 0xC3, 0x14, 0xB5, 0x0F, 0x53, 0xE1, 0x3E, 0x8E, 0x00 };
+struct DecryptMode
+{
+	DecryptMode(const std::string& name, const DecryptFunction& decFunc, const std::vector<char> key) :
+		name(name),
+		decFunc(decFunc),
+		key(key)
+	{
+	}
 
-static const char KEY_OWH_NORMAL[] = "nGui9('&1=@3#a";
-static const char KEY_OWH_PLUS[] = "Ph=X3^]o2A(,1=@3#a";
+	DecryptMode(const std::string& name, const DecryptFunction& decFunc, const std::string& key) :
+		name(name),
+		decFunc(decFunc),
+		key(std::begin(key), std::end(key))
+	{
+		this->key.push_back(0x00); // The key needs to end with 0x00 so the parser knows when to stop
+	}
 
-static constexpr uint32_t MODES = 7;
+
+	DecryptMode(const std::string& name, const DecryptFunction& decFunc, const std::vector<unsigned char> key) :
+		name(name),
+		decFunc(decFunc)
+	{
+		std::copy(std::begin(key), std::end(key), std::back_inserter(this->key));
+	}
+
+	std::string name;
+	DecryptFunction decFunc;
+	std::vector<char> key;
+};
+
+const std::vector<DecryptMode> DECRYPT_MODES = {
+	{"Wolf RPG v2.01", &DXArchive_VER5::DecodeArchive, std::vector<unsigned char>{ 0x0f, 0x53, 0xe1, 0x3e, 0x04, 0x37, 0x12, 0x17, 0x60, 0x0f, 0x53, 0xe1 } },
+	{"Wolf RPG v2.10", &DXArchive_VER5::DecodeArchive, std::vector<unsigned char>{ 0x4c, 0xd9, 0x2a, 0xb7, 0x28, 0x9b, 0xac, 0x07, 0x3e, 0x77, 0xec, 0x4c } },
+	{"Wolf RPG v2.20", &DXArchive_VER6::DecodeArchive, std::vector<unsigned char>{ 0x38, 0x50, 0x40, 0x28, 0x72, 0x4f, 0x21, 0x70, 0x3b, 0x73, 0x35, 0x38 } },
+	{"Wolf RPG v2.281", &DXArchive::DecodeArchive, "WLFRPrO!p(;s5((8P@((UFWlu$#5(=" },
+	{"Wolf RPG v3.10", &DXArchive::DecodeArchive, std::vector<unsigned char>{ 0x0F, 0x53, 0xE1, 0x3E, 0x8E, 0xB5, 0x41, 0x91, 0x52, 0x16, 0x55, 0xAE, 0x34, 0xC9, 0x8F, 0x79, 0x59, 0x2F, 0x59, 0x6B, 0x95, 0x19, 0x9B, 0x1B, 0x35, 0x9A, 0x2F, 0xDE, 0xC9, 0x7C, 0x12, 0x96, 0xC3, 0x14, 0xB5, 0x0F, 0x53, 0xE1, 0x3E, 0x8E, 0x00 } },
+	{"One Way Heroics", &DXArchive::DecodeArchive, "nGui9('&1=@3#a" },
+	{"One Way Heroics Plus", &DXArchive::DecodeArchive, "Ph=X3^]o2A(,1=@3#a" }
+};
 
 uint32_t g_mode = -1;
 
@@ -38,6 +70,14 @@ bool unpackArchive(const uint32_t mode, const TCHAR* pFilePath)
 	TCHAR directoryPath[MAX_PATH];
 	TCHAR fileName[MAX_PATH];
 	bool failed = true;
+
+	if (mode >= DECRYPT_MODES.size())
+	{
+		std::cerr << "Specified Mode: " << mode << " out of range" << std::endl;
+		return false;
+	}
+
+	const DecryptMode curMode = DECRYPT_MODES.at(mode);
 
 	ConvertFullPath__(pFilePath, fullPath);
 
@@ -51,32 +91,7 @@ bool unpackArchive(const uint32_t mode, const TCHAR* pFilePath)
 
 	SetCurrentDirectory(fileName);
 
-	switch (mode)
-	{
-		case 0:
-			failed = DXArchive_VER5::DecodeArchive(fullPath, TEXT(""), (const char*)KEY_2_01) < 0;
-			break;
-		case 1:
-			failed = DXArchive_VER5::DecodeArchive(fullPath, TEXT(""), (const char*)KEY_2_10) < 0;
-			break;
-		case 2:
-			failed = DXArchive_VER6::DecodeArchive(fullPath, TEXT(""), (const char*)KEY_2_20) < 0;
-			break;
-		case 3:
-			failed = DXArchive::DecodeArchive(fullPath, TEXT(""), KEY_2_281) < 0;
-			break;
-		case 4:
-			failed = DXArchive::DecodeArchive(fullPath, TEXT(""), reinterpret_cast<const char*>(KEY_3_10)) < 0;
-			break;
-		case 5:
-			failed = DXArchive::DecodeArchive(fullPath, TEXT(""), KEY_OWH_NORMAL) < 0; // One Way Heroics - Normal
-			break;
-		case 6:
-			failed = DXArchive::DecodeArchive(fullPath, TEXT(""), KEY_OWH_PLUS) < 0; // One Way Heroics - Plus
-			break;
-		default:
-			break;
-	}
+	failed = curMode.decFunc(fullPath, TEXT(""), curMode.key.data()) < 0;
 
 	if (failed)
 	{
@@ -98,18 +113,7 @@ bool runProcess(const TCHAR* pProgName, const TCHAR* pFilePath, const uint32_t m
 
 	std::wstring wstr = std::wstring(pProgName) + L" -m " + std::to_wstring(mode) + L" \"" + std::wstring(pFilePath) + L"\"";
 
-	// Start the child process. 
-	if (!CreateProcess(NULL,   // No module name (use command line)
-					   const_cast<LPWSTR>(wstr.c_str()),   // Command line
-					   NULL,           // Process handle not inheritable
-					   NULL,           // Thread handle not inheritable
-					   FALSE,          // Set handle inheritance to FALSE
-					   0,              // No creation flags
-					   NULL,           // Use parent's environment block
-					   NULL,           // Use parent's starting directory 
-					   &si,            // Pointer to STARTUPINFO structure
-					   &pi)           // Pointer to PROCESS_INFORMATION structure
-		)
+	if (!CreateProcess(NULL, const_cast<LPWSTR>(wstr.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
 	{
 		std::cerr << "CreateProcess failed (" << GetLastError() << ")." << std::endl;
 		return false;
@@ -141,7 +145,7 @@ void detectMode(const TCHAR* pProgName, const TCHAR* pFilePath)
 
 	if (g_mode == -1)
 	{
-		for (uint32_t i = 0; i < MODES; i++)
+		for (uint32_t i = 0; i < DECRYPT_MODES.size(); i++)
 		{
 			success = runProcess(pProgName, pFilePath, i);
 			if (success)
