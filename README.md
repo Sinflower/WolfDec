@@ -10,3 +10,7 @@ The decryption is done using a slightly modified version of
 
 ### Usage ###
 Just drag and drop one or more *.wolf* file[s] onto the executable to extract them.
+
+
+# NOTICE:
+**For new games and Wolf Pro support please use the new application [UberWolf](https://github.com/Sinflower/UberWolf)**
